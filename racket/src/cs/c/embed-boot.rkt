@@ -65,7 +65,8 @@
         (add-plt-segment dest-file data #:name #"__RKTBOOT")
         ;; Find segment at run time:
         0]
-       [("ta6nt" "ti3nt" "win32\\x86_64" "win32\\i386")
+       [("ta6nt" "ti3nt" "tarm64nt"
+         "win32\\x86_64" "win32\\i386" "win32\\arm64")
         (copy-file use-src-file dest-file #t)
         (define-values (pe rsrcs) (call-with-input-file*
                                    dest-file
@@ -128,7 +129,13 @@
      (define big-endian?
        (if target
            (case target
-             [("tppc32le") #t]
+             [("tppc32osx" "ppc32osx"
+                          "tppc32le" "ppc32le"
+                          "tppc32fb" "ppc32fb"
+                          "tppc32ob" "ppc32ob"
+                          "tppc32nb" "ppc32nb"
+                          "tpb64b" "pb64b"
+                          "tpb32b" "pb32b") #t]
              [else #f])
            (system-big-endian?)))
 

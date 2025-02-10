@@ -61,7 +61,8 @@
        (no))]))
 
 (define (generate-stripped-directory mode dir dest-dir
-                                     #:check-status? [check-status? #t])
+                                     #:check-status? [check-status? #t]
+                                     #:original-source [orig-pkg-source #f])
   (unless (path-string? dir)
     (raise-argument-error 'generate-stripped-directory "path-string?" dir))
   (unless (path-string? dest-dir)
@@ -190,7 +191,7 @@
          [(binary binary-lib)
           (cond
             [(equal? #"info.rkt" bstr)
-             (fixup-info new-p src-base level mode)]
+             (fixup-info new-p src-base level mode orig-pkg-source)]
             [(regexp-match? #rx"[.]zo$" bstr)
              (fixup-zo new-p)])]
          [(built source)
@@ -198,7 +199,7 @@
                     (eq? level 'package+collection))
             (cond
               [(equal? #"info.rkt" bstr)
-               (fixup-info new-p src-base level mode)]
+               (fixup-info new-p src-base level mode orig-pkg-source)]
               [else (void)]))]
          [else (void)])]))
   
@@ -306,9 +307,8 @@
            #t
            new-mod*-subs))))
   (unless (eq? mod new-mod)
-    (call-with-output-file*
+    (call-with-output-file/writable
      new-p
-     #:exists 'truncate/replace
      (lambda (out) (write new-mod out)))))
 
 (define (fixup-local-redirect-reference p js-path #:user [user-js-path js-path])
@@ -340,13 +340,12 @@
                                       (string->bytes/utf-8 user-js-path)
                                       (subbytes s (+ delta end2)))]
                        [else s]))))
-    (call-with-output-file*
+    (call-with-output-file/writable
      p
-     #:exists 'truncate/replace
      (lambda (out) (write-bytes new-bstr out)))))
 
-;; Used in binary[-lib] mode:
-(define (fixup-info new-p src-base level mode)
+;; Used in binary[-lib] mode for collection level, all modes for package level:
+(define (fixup-info new-p src-base level mode orig-pkg-source)
   (define dir (let-values ([(base name dir?) (split-path new-p)])
                 base))
   ;; check format:
@@ -372,8 +371,11 @@
           ,@(case mode
               [(source) '()]
               [else `((define package-content-state '(,mode ,(version))))])
+          ,@(if orig-pkg-source
+                `((define package-original-source ,orig-pkg-source))
+                '())
           . ,(filter values
-                     (map (fixup-info-definition get-info mode) defns)))))
+                     (map (fixup-info-definition get-info mode orig-pkg-source) defns)))))
     (define new-content
       (match content
         [`(module info ,info-lib (#%module-begin . ,defns))
@@ -383,9 +385,8 @@
          (convert-mod info-lib defns)]))
     (unless (equal? new-content content)
       ;; write updated:
-      (call-with-output-file* 
+      (call-with-output-file/writable
        new-p
-       #:exists 'truncate
        (lambda (out)
          (write new-content out)
          (newline out)))
@@ -398,9 +399,11 @@
         (unless (eq? level 'package)
           (managed-compile-zo new-p))))))
 
-(define ((fixup-info-definition get-info mode) defn)
+(define ((fixup-info-definition get-info mode orig-pkg-source) defn)
   (match defn
     [`(define package-content-state . ,v) #f]
+    [`(define package-original-source . ,v)
+     (if orig-pkg-source #f defn)]
     [_
      (case mode
        [(built source) defn]
@@ -503,3 +506,29 @@
                     which
                     dir)
             (current-continuation-marks)))))
+
+(define (call-with-output-file/writable pth proc)
+  ;; In case `pth` was copied from a file without the user-write-bit set,
+  ;; explicitly make it writable while we overwrite it.
+  (define (run)
+    (call-with-output-file* pth
+      #:exists 'truncate/replace
+      proc))
+  (cond
+    [(file-exists? pth)
+     (define old-mode
+       (file-or-directory-permissions pth 'bits))
+     (define new-mode
+       (if (eq? (system-type) 'windows)
+           (bitwise-ior old-mode user-write-bit group-write-bit other-write-bit)
+           (bitwise-ior old-mode user-write-bit)))
+     (if (= old-mode new-mode)
+         (run)
+         (dynamic-wind
+          (λ ()
+            (file-or-directory-permissions pth new-mode))
+          run
+          (λ ()
+            (file-or-directory-permissions pth old-mode))))]
+    [else
+     (run)]))

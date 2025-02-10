@@ -1,16 +1,16 @@
 #lang racket/base
-(require racket/contract/base
-         racket/match
+
+(require file/gunzip
+         openssl
+         racket/contract/base
          racket/list
-         racket/string
+         racket/match
          racket/port
+         racket/string
          (rename-in racket/tcp
                     [tcp-connect plain-tcp-connect]
                     [tcp-abandon-port plain-tcp-abandon-port])
-         openssl
-         "win32-ssl.rkt"
-         "osx-ssl.rkt"
-         file/gunzip)
+         "platform-ssl.rkt")
 
 (define tolerant? #t)
 (define eol-type
@@ -160,27 +160,34 @@
   (match-define (http-conn host port port-usual? to from _
                            auto-reconnect? auto-reconnect-host auto-reconnect-ssl?) hc)
   (fprintf to "~a ~a HTTP/~a\r\n" method-bss url-bs version-bs)
-  (unless (regexp-member #rx"^(?i:Host:) +.+$" headers-bs)
-    (fprintf to "Host: ~a\r\n" 
+  (unless (regexp-member #rx"^(?i:Host:)[\t ]*.+$" headers-bs)
+    (fprintf to "Host: ~a\r\n"
              (if port-usual?
                host
                (format "~a:~a" host port))))
-  (unless (regexp-member #rx"^(?i:User-Agent:) +.+$" headers-bs)
-    (fprintf to "User-Agent: Racket/~a (net/http-client)\r\n" 
+  (unless (regexp-member #rx"^(?i:User-Agent:)[\t ]*.+$" headers-bs)
+    (fprintf to "User-Agent: Racket/~a (net/http-client)\r\n"
              (version)))
   (unless (or (empty? decodes)
-              (regexp-member #rx"^(?i:Accept-Encoding:) +.+$" headers-bs))
+              (regexp-member #rx"^(?i:Accept-Encoding:)[\t ]*.+$" headers-bs))
     (fprintf to "Accept-Encoding: ~a\r\n"
              (string-join (map symbol->string decodes) ",")))
 
   (define body (->bytes data))
   (cond [(procedure? body)
          (fprintf to "Transfer-Encoding: chunked\r\n")]
-        [(and body
-              (not (regexp-member #rx"^(?i:Content-Length:) +.+$" headers-bs)))
+        [(and
+          ;; Some hosts fail when given a Content-Length of 0. So, avoid
+          ;; sending the header if there isn't any content and the
+          ;; method doesn't expect a body.
+          ;;
+          ;; xref: https://github.com/racket/racket/pull/5200
+          (or (expects-body? method-bss)
+              (not (bytes=? body #"")))
+          (not (regexp-member #rx"^(?i:Content-Length:)[\t ]*.+$" headers-bs)))
          (fprintf to "Content-Length: ~a\r\n" (bytes-length body))])
   (when close?
-    (unless (regexp-member #rx"^(?i:Connection:) +.+$" headers-bs)
+    (unless (regexp-member #rx"^(?i:Connection:)[\t ]*.+$" headers-bs)
       (fprintf to "Connection: close\r\n")))
   (for ([h (in-list headers-bs)])
     (fprintf to "~a\r\n" h))
@@ -188,14 +195,15 @@
   (cond [(procedure? body)
          (body (λ (data) (write-chunk to data)))
          (fprintf to "0\r\n\r\n")]
-        [body (display body to)])
+        [(not (bytes=? body #""))
+         (display body to)])
   (flush-output to))
 
 (define (http-conn-status! hc)
   (read-bytes-line/not-eof (http-conn-from hc) eol-type))
 
 (define (http-conn-headers! hc)
-  (define top (read-bytes-line/not-eof (http-conn-from hc) eol-type))  
+  (define top (read-bytes-line/not-eof (http-conn-from hc) eol-type))
   (if (bytes=? top #"")
     empty
     (cons top (http-conn-headers! hc))))
@@ -205,7 +213,7 @@
   (define buffer (make-bytes BUFFER-SIZE))
   (let loop ([count count])
     (when (positive? count)
-      (define r 
+      (define r
         (read-bytes-avail! buffer in 0
                            (if (< count BUFFER-SIZE)
                              count
@@ -240,7 +248,7 @@
          (define size-str (string-trim in-v))
          (define chunk-size (string->number size-str 16))
          (unless chunk-size
-           (error 'http-conn-response/chunked 
+           (error 'http-conn-response/chunked
                   "Could not parse ~S as hexadecimal number"
                   size-str))
          (define use-last-bytes?
@@ -325,10 +333,28 @@
           (define abandon-p ssl-abndn-p)
           (values clt-ctx r:from r:to abandon-p)]))
 
+(define (delete? method-bss)
+  (or (equal? method-bss #"DELETE")
+      (equal? method-bss "DELETE")
+      (equal? method-bss 'DELETE)))
+
+(define (get? method-bss)
+  (or (equal? method-bss #"GET")
+      (equal? method-bss "GET")
+      (equal? method-bss 'GET)))
+
 (define (head? method-bss)
   (or (equal? method-bss #"HEAD")
       (equal? method-bss "HEAD")
       (equal? method-bss 'HEAD)))
+
+;; https://www.rfc-editor.org/rfc/rfc9110.html#name-get
+;; https://www.rfc-editor.org/rfc/rfc9110.html#name-head
+;; https://www.rfc-editor.org/rfc/rfc9110.html#name-delete
+(define (expects-body? method-bss)
+  (and (not (get? method-bss))
+       (not (head? method-bss))
+       (not (delete? method-bss))))
 
 ;; https://datatracker.ietf.org/doc/html/rfc2616#section-10.1
 ;; https://datatracker.ietf.org/doc/html/rfc2616#section-10.2.5
@@ -345,18 +371,18 @@
   (define headers (http-conn-headers! hc))
   (define close?
     (or iclose?
-        (regexp-member #rx#"^(?i:Connection: +close)$" headers)))
+        (regexp-member #rx#"^(?i:Connection:[\t ]*close)$" headers)))
   (when close?
     (http-conn-abandon! hc))
   (define-values (raw-response-port wait-for-close?)
     (cond
       [(head? method-bss)
        (values (open-input-bytes #"") #f)]
-      [(regexp-member #rx#"^(?i:Transfer-Encoding: +chunked)$" headers)
+      [(regexp-member #rx#"^(?i:Transfer-Encoding:[\t ]*chunked)$" headers)
        (values (http-conn-response-port/chunked! hc #:close? #t)
                #t)]
       [(ormap (λ (h)
-                (match (regexp-match #rx#"^(?i:Content-Length:) +(.+)$" h)
+                (match (regexp-match #rx#"^(?i:Content-Length:)[\t ]*(.+)$" h)
                   [#f #f]
                   [(list _ cl-bs)
                    (string->number
@@ -394,11 +420,11 @@
       (cond
         [(head? method-bss) raw-response-port]
         [(and (memq 'gzip decodes)
-              (regexp-member #rx#"^(?i:Content-Encoding: +gzip)$" headers)
+              (regexp-member #rx#"^(?i:Content-Encoding:[\t ]*gzip)$" headers)
               (not (eof-object? (peek-byte raw-response-port))))
          (decode-response raw-response-port gunzip-through-ports)]
         [(and (memq 'deflate decodes)
-              (regexp-member #rx#"^(?i:Content-Encoding: +deflate)$" headers)
+              (regexp-member #rx#"^(?i:Content-Encoding:[\t ]*deflate)$" headers)
               (not (eof-object? (peek-byte raw-response-port))))
          (decode-response raw-response-port inflate)]
         [else
@@ -419,7 +445,7 @@
                    #:headers headers-bs
                    #:content-decode decodes
                    #:data data)
-  (http-conn-recv! hc 
+  (http-conn-recv! hc
                    #:method method-bss
                    #:content-decode decodes
                    #:close? close?))
@@ -489,7 +515,7 @@
      #:method (or/c bytes? string? symbol?)
      #:close? boolean?
      #:headers (listof (or/c bytes? string?))
-     #:content-decode (listof symbol?)                           
+     #:content-decode (listof symbol?)
      #:data (or/c false/c bytes? string? data-procedure/c))
     void)]
   ;; Derived
@@ -518,7 +544,7 @@
          #:method (or/c bytes? string? symbol?)
          #:headers (listof (or/c bytes? string?))
          #:data (or/c false/c bytes? string? data-procedure/c)
-         #:content-decode (listof symbol?) 
+         #:content-decode (listof symbol?)
          #:close? boolean?)
         (values bytes? (listof bytes?) input-port?))]
   [http-sendrecv

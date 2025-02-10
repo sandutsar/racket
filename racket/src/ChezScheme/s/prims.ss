@@ -29,6 +29,7 @@
 (define list ($hand-coded 'list-procedure))
 (define $record ($hand-coded '$record-procedure))
 (define vector ($hand-coded 'vector-procedure))
+(define immutable-vector ($hand-coded 'immutable-vector-procedure))
 (define cons* ($hand-coded 'cons*-procedure))
 (define list* ($hand-coded 'list*-procedure))
 (define $apply ($hand-coded '$apply-procedure))
@@ -87,7 +88,7 @@
   (lambda (bv i)
     (unless (reference-bytevector? bv) ($oops who "~s is not a reference bytevector" bv))
     (unless (and (fixnum? i)
-                 (not ($fxu< (fx- (bytevector-length bv) (fx- (constant ptr-bytes) 1)) i)))
+                 (fx<= 0 i (fx- (bytevector-length bv) (constant ptr-bytes))))
       ($oops who "invalid index ~s for ~s" i bv))
     (bytevector-reference-ref bv i)))
 
@@ -96,7 +97,7 @@
     (lambda (bv i)
       (unless (reference-bytevector? bv) ($oops who "~s is not a reference bytevector" bv))
       (unless (and (fixnum? i)
-                   (not ($fxu< (fx- (bytevector-length bv) (fx- (constant ptr-bytes) 1)) i)))
+                   (fx<= 0 i (fx- (bytevector-length bv) (constant ptr-bytes))))
         ($oops who "invalid index ~s for ~s" i bv))
       (ref bv i))))
 
@@ -104,7 +105,7 @@
   (lambda (bv i val)
     (unless (reference-bytevector? bv) ($oops who "~s is not a reference bytevector" bv))
     (unless (and (fixnum? i)
-                 (not ($fxu< (fx- (bytevector-length bv) (fx- (constant ptr-bytes) 1)) i)))
+                 (fx<= 0 i (fx- (bytevector-length bv) (constant ptr-bytes))))
       ($oops who "invalid index ~s for ~s" i bv))
     (bytevector-reference-set! bv i val)))
 
@@ -226,7 +227,7 @@
 
 (define $intern-gensym
   (foreign-procedure "(cs)s_intern_gensym"
-    (scheme-object)
+    (scheme-object scheme-object)
     void))
 
 (define cpu-time
@@ -562,16 +563,16 @@
 ;; attachments or the given attachments `as` that must be either
 ;; the same as the attachments saved by `c` or one immediate
 ;; attachment extending those attachments
-(define-who call-in-continuation
+(define-who $call-in-continuation
   (case-lambda
    [(c p)
     (unless (procedure? p)
       ($oops who "~s is not a procedure" p))
-    (#2%call-in-continuation c (lambda () (p)))]
+    (#2%$call-in-continuation c (lambda () (p)))]
    [(c as p)
     (unless (procedure? p)
       ($oops who "~s is not a procedure" p))
-    (#2%call-in-continuation c as (lambda () (p)))]))
+    (#2%$call-in-continuation c as (lambda () (p)))]))
 
 ;; checks `c` and consistency of `as` with `c`, and also runs any needed winders
 (define $assert-continuation
@@ -579,23 +580,23 @@
    [(c) (#2%$assert-continuation c)]
    [(c as) (#2%$assert-continuation c as)]))
 
-(define-who call-setting-continuation-attachment
+(define-who $call-setting-continuation-attachment
   (lambda (v p)
     (unless (procedure? p)
       ($oops who "~s is not a procedure" p))
-    (#3%call-setting-continuation-attachment v (lambda () (p)))))
+    (#3%$call-setting-continuation-attachment v (lambda () (p)))))
 
-(define-who call-getting-continuation-attachment
+(define-who $call-getting-continuation-attachment
   (lambda (default-val p)
     (unless (procedure? p)
       ($oops who "~s is not a procedure" p))
-    (#3%call-getting-continuation-attachment default-val (lambda (x) (p x)))))
+    (#3%$call-getting-continuation-attachment default-val (lambda (x) (p x)))))
 
-(define-who call-consuming-continuation-attachment
+(define-who $call-consuming-continuation-attachment
   (lambda (default-val p)
     (unless (procedure? p)
       ($oops who "~s is not a procedure" p))
-    (#3%call-consuming-continuation-attachment default-val (lambda (x) (p x)))))
+    (#3%$call-consuming-continuation-attachment default-val (lambda (x) (p x)))))
 
 (define $code? (lambda (x) ($code? x)))
 
@@ -665,7 +666,8 @@
       [(pb)
        (unless (vector? x)
          ($oops 'foreign-callable-entry-point "~s is not a vector" x))
-       (bitwise-arithmetic-shift-left (vector-ref x 2) (constant fixnum-offset))]
+       (bitwise-and (bitwise-arithmetic-shift-left (vector-ref x 2) (constant fixnum-offset))
+                    (- (bitwise-arithmetic-shift-left 1 (constant ptr-bits)) 1))]
       [else
        (unless ($code? x)
          ($oops 'foreign-callable-entry-point "~s is not a code object" x))
@@ -1440,14 +1442,22 @@
    (lambda (v)
       (#2%stencil-vector-mask v)))
 
+(define $stencil-vector-mask
+   (lambda (v)
+      (#2%$stencil-vector-mask v)))
+
 (define-who $make-stencil-vector
   (lambda (len mask)
     ($oops who "should only be used as inlined with GC disabled")))
 
+(define-who $make-system-stencil-vector
+  (lambda (len mask)
+    ($oops who "should only be used as inlined with GC disabled")))
+
 ; not safe; assumes `val` is older than `v`
-(define $stencil-vector-set!
+(define $stencil-vector-fill-set!
   (lambda (v i val)
-    ($stencil-vector-set! v i val)))
+    ($stencil-vector-fill-set! v i val)))
 
 ; not safe
 (define $record-ref
@@ -1539,6 +1549,10 @@
 (define flvector? (lambda (x) (flvector? x)))
 
 (define stencil-vector? (lambda (x) (stencil-vector? x)))
+
+(define $stencil-vector? (lambda (x) ($stencil-vector? x)))
+
+(define $system-stencil-vector? (lambda (x) ($system-stencil-vector? x)))
 
 (define procedure? (lambda (x) (procedure? x)))
 
@@ -1760,6 +1774,8 @@
     (case-lambda
       [() ($current-winders)]
       [(w)
+       ;; this check could be helpful, but it's not constant-time:
+       #;
        (unless (and (list? w) (andmap winder? w))
          ($oops who "malformed winders ~s" w))
        ($current-winders w)])))
@@ -1768,9 +1784,16 @@
   (case-lambda
     [() ($current-attachments)]
     [(w)
+     ;; this check could be helpful, but it's not constant-time:
+     #;
      (unless (list? w)
        ($oops '$current-attachments "malformed attachments ~s" w))
      ($current-attachments w)]))
+
+(define-who $current-handler-stack
+  (case-lambda
+   [() ($current-handler-stack)]
+   [(w) ($current-handler-stack w)]))
 
 (define lock-object
   (foreign-procedure "(cs)lock_object" (scheme-object) void))
@@ -1828,6 +1851,10 @@
   (foreign-procedure "(cs)s_ptr_in_heap" (ptr) boolean))
 
 (define $event (lambda () ($event)))
+
+;; expected to be inlined, but if not, the fact that an uninlined
+;; function is called will create a trap check
+(define $event-trap-check (lambda () (void)))
 
 (let ()
   (define (inc)
@@ -2903,7 +2930,7 @@
     (unless (wrapper-procedure? x) ($oops who "~s is not a wrapper procedure" x))
     ($closure-ref x 0)))
 
-(define-who set-wrapper-procedure!
+(define-who set-wrapper-procedure-procedure!
   (lambda (x proc)
     (unless (wrapper-procedure? x) ($oops who "~s is not a wrapper procedure" x))
     (unless (procedure? proc)  ($oops who "~s is not a procedure" proc))

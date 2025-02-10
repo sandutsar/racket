@@ -65,7 +65,7 @@ static void oblist_insert(ptr sym, iptr idx, IGEN g) {
 
 void S_resize_oblist(void) {
   bucket **new_oblist, *b, *oldb, **pb, *bnext;
-  iptr new_oblist_length, i, idx, inc = 0, dinc = 0;
+  iptr new_oblist_length, i, idx;
   ptr sym;
   IGEN g;
 
@@ -80,18 +80,14 @@ void S_resize_oblist(void) {
 
   for (i = 0; i < S_G.oblist_length; i += 1) {
     for (b = S_G.oblist[i]; b != NULL; b = bnext) {
-      int done = 0;
       bnext = b->next;
       sym = b->sym;
       idx = OBINDEX(UNFIX(SYMHASH(sym)), new_oblist_length);
       g = GENERATION(sym);
 
-      for (pb = &new_oblist[idx]; (oldb = *pb) != NULL && SegmentGeneration(addr_get_segment(TO_PTR(oldb))) < g; pb = &oldb->next) {
-        inc++;
-        if (done)
-          dinc++;
-        done = 1;
-      }
+      for (pb = &new_oblist[idx];
+           (oldb = *pb) != NULL && SegmentGeneration(addr_get_segment(TO_PTR(oldb))) < g;
+           pb = &oldb->next);
       b->next = oldb;
       *pb = b;
     }
@@ -140,11 +136,15 @@ I64 S_symbol_hash64(ptr str) {
 }
 
 static ptr mkstring(const string_char *s, iptr n) {
-  iptr i;
-  ptr str = S_string(NULL, n);
-  for (i = 0; i != n; i += 1) STRIT(str, i) = s[i];
-  STRTYPE(str) |= string_immutable_flag;
-  return str;
+  if (n == 0) {
+    return S_G.null_immutable_string;
+  } else {
+    iptr i;
+    ptr str = S_string(NULL, n);
+    for (i = 0; i != n; i += 1) STRIT(str, i) = s[i];
+    STRTYPE(str) |= string_immutable_flag;
+    return str;
+  }
 }
 
 ptr S_mkstring(const string_char *s, iptr n) {
@@ -268,8 +268,8 @@ ptr S_intern3(const string_char *pname, iptr plen, const string_char *uname, ipt
   return sym;
 }
 
-void S_intern_gensym(ptr sym) {
-  ptr uname_str = Scar(SYMNAME(sym));
+void S_intern_gensym(ptr sym, ptr sym_name) {
+  ptr uname_str = Scar(sym_name);
   const string_char *uname = &STRIT(uname_str, 0);
   iptr ulen = Sstring_length(uname_str);
   iptr hc = hash_uname(uname, ulen);
@@ -297,6 +297,7 @@ void S_intern_gensym(ptr sym) {
     b = b->next;
   }
 
+  SETSYMNAME(sym, sym_name);
   INITSYMHASH(sym) = FIX(hc);
   oblist_insert(sym, idx, GENERATION(sym));
 
@@ -304,7 +305,7 @@ void S_intern_gensym(ptr sym) {
 }
 
 /* must hold mutex */
-ptr S_intern4(sym) ptr sym; {
+ptr S_intern4(ptr sym) {
   ptr name = SYMNAME(sym);
   ptr uname_str = (Sstringp(name) ? name : Scar(name));
   const string_char *uname = &STRIT(uname_str, 0);

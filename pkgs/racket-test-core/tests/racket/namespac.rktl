@@ -143,6 +143,14 @@
   (test (void) namespace-undefine-variable! 'bar)
   (test 28 namespace-variable-value 'bar #t (lambda () 28)))
 
+(test 'cwv-ok
+      (namespace-variable-value 'call-with-values (make-base-namespace))
+      (lambda () 'cwv-ok)
+      (let ()
+        (struct p (proc)
+          #:property prop:procedure 0)
+        (p (lambda (v) v))))
+
 ;; ----------------------------------------
 
 (test #f
@@ -160,7 +168,7 @@
 
 ;; ----------------------------------------
 
-(module phaser scheme/base 
+(module phaser racket/base 
   (define x (variable-reference->phase
              (#%variable-reference x)))
   (define y (variable-reference->module-base-phase
@@ -231,6 +239,10 @@
 (parameterize ([current-namespace (make-base-namespace)])
   (eval '(define-namespace-anchor anchor))
   (test 1 eval '(eval 1 (namespace-anchor->namespace anchor))))
+
+;; regression test to make sure `module-begin` context is handled
+(module module-that-just-has-a-namespace-anchor racket/base
+  (define-namespace-anchor ar))
 
 ;; ----------------------------------------
 

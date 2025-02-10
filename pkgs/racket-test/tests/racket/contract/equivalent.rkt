@@ -289,6 +289,13 @@
   (ctest #t contract-equivalent? (listof char?) (list*of char? null?))
   (ctest #f contract-equivalent? (list*of char? any/c) (listof char?))
   
+  (ctest #t contract-equivalent? (treelist/c integer?) (treelist/c integer?))
+  (ctest #f contract-equivalent? (treelist/c integer?) (treelist/c natural?))
+  (ctest #f contract-equivalent? (treelist/c natural?) (treelist/c integer?))
+  (ctest #t contract-equivalent? (mutable-treelist/c integer?) (mutable-treelist/c integer?))
+  (ctest #f contract-equivalent? (mutable-treelist/c integer?) (mutable-treelist/c natural?))
+  (ctest #f contract-equivalent? (mutable-treelist/c natural?) (mutable-treelist/c integer?))
+
   (ctest #f contract-equivalent? (vectorof (<=/c 3)) (vectorof (<=/c 4)))
   (ctest #f contract-equivalent? (vectorof (<=/c 3)) (vectorof (<=/c 4)))
   (ctest #t contract-equivalent? (vectorof (<=/c 3)) (vectorof (<=/c 3)))
@@ -612,6 +619,110 @@
   (ctest #t contract-equivalent? (evt/c integer?) (evt/c integer?))
   (ctest #f contract-equivalent? (evt/c integer?) (evt/c boolean?))
   
+  (ctest #t contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) boolean? (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 1 5)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 1 5))))
+  (ctest #t contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 1 5)))
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 1 5))))
+  (ctest #f contract-equivalent?
+         (case->m (-> (integer-in 0 10) (integer-in 1 5) (integer-in 0 10))
+                  (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 1 5))))
+  (ctest #t contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (values (integer-in 0 10) (integer-in 1 11)))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) any)
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 0 10) (values (integer-in 0 10) (integer-in 1 11)))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (values (integer-in 0 10) (integer-in 1 11)))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 1 10))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> (integer-in 0 10) (integer-in 1 5) (integer-in 1 10))
+                 (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (values (integer-in 0 10) (integer-in 1 11)))
+                 (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #t contract-equivalent?
+         (case->m (->       (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (->       (integer-in 0 10) (integer-in 1 5)))
+         (case->  (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (-> any/c (integer-in 0 10) (integer-in 1 5))))
+  (ctest #f contract-equivalent?
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> any/c (integer-in 0 10) (integer-in 1 5)))
+         (case->m (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case->m (->       (integer-in 0 10) (integer-in 0 10) (integer-in 1 5))
+                  (->       (integer-in 0 10) (integer-in 0 10)))
+         (case->  (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (-> any/c (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                 (-> any/c (integer-in 0 10) (integer-in 1 5)))
+         (case->m (-> (integer-in 0 10) (integer-in 0 10) (integer-in 1 5))
+                  (-> (integer-in 0 10) (integer-in 0 10))))
+  (ctest #f contract-equivalent?
+         (case->m (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (-> (integer-in 0 10) (integer-in 0 10)))
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 1 5))
+                 (-> any/c (integer-in 0 10) (integer-in 1 5))))
+  (ctest #f contract-equivalent?
+         (case-> (-> any/c (integer-in 0 10) (integer-in 0 10) (integer-in 1 5))
+                 (-> any/c (integer-in 0 10) (integer-in 1 5)))
+         (case->m (-> (integer-in 0 10) (integer-in 0 10) (integer-in 0 10))
+                  (-> (integer-in 0 10) (integer-in 0 10))))
+
   ;; chances are, this predicate will accept "x", but
   ;; we don't want to consider it stronger, since it 
   ;; will not always accept "x".

@@ -61,10 +61,13 @@ several options:
  @item{@bold{Minimal} --- This mode is like a source distribution, and
    it is described in the @filepath{src} subdirectory of
    @filepath{racket} (i.e., ignore the repository's root directory and
-   @filepath{pkgs} subdirectory). Build a minimal Racket using the
-   usual @exec{configure && make && make install} steps (or similar
-   for Windows), and then you can install packages from the catalog
-   server with @exec{raco pkg}.}
+   @filepath{pkgs} subdirectory). Build an in-place minimal Racket using @exec{make base}.
+   Alternatively, use @exec{make pb-fetch} to download bootstrapping support, and then
+   in @filepath{racket/src} use the usual @exec{configure && make && make install} steps (or similar
+   for Windows). After installation, you can install packages from the catalog
+   server with @exec{raco pkg}; if you do not use @exec{make base},
+   you should install at least the @filepath{racket-lib} package. See
+   @secref["minimal"] for more information.}
 
  @item{@bold{Installers} --- This mode creates Racket distribution
    installers for a variety of platforms by farming out work to
@@ -90,7 +93,7 @@ On Windows with Microsoft Visual Studio (any version between 2008/9.0
 and 2022/17.0), @exec{nmake} creates a build in the @filepath{racket}
 directory. If your command-prompt environment is not already
 configured for Visual Studio to run programs like @exec{nmake.exe} and
-@exec{cl.exe}, you run @filepath{racket/src/worksp/msvcprep.bat}
+@exec{cl.exe}, you can run @filepath{racket/src/worksp/msvcprep.bat}
 (PowerShell: @filepath{racket/src/worksp/msvcprep.ps1}} and provide an
 argument that selects a build mode: @exec{x86} (32-bit Intel/AMD
 mode), @exec{x64} or @exec{x86_amd64} (64-bit Intel/AMD mode), or
@@ -142,9 +145,9 @@ The @filepath{racket} directory contains minimal Racket, which is just
 enough to run @exec{raco pkg} to install everything else. A first step
 of @exec{make in-place} or @exec{make unix-style} is to build minimal
 Racket, and you can read @filepath{racket/src/README.txt} for more
-information. (The very first step of a build is to compile Zuo, which
-is a tiny variant of Racket that @seclink["zuo"]{drives the rest of
-the build system}.)
+information, including information about dependencies. (The very first
+step of a build is to compile Zuo, which is a tiny variant of Racket
+that @seclink["zuo"]{drives the rest of the build system}.)
 
 If you would like to provide arguments to @exec{configure} for the
 minimal Racket build, then you can supply them with by adding
@@ -222,7 +225,7 @@ downloaded from a separate Git repository by @exec{make}. If you have
 Racket v7.1 or later, then you can choose instead to bootstrap using
 that Racket implementation with
 
-@commandline{make cs RACKET_FOR_BOOTFILES=racket}
+@commandline{make cs BOOTFILE_RACKET=racket}
 
 The @exec{make bc} target (or @exec{make bc-as-is} for a rebuild) builds an older
 variant of Racket, called Racket BC, which does not use Chez Scheme.
@@ -251,7 +254,7 @@ together. You can also read @filepath{Makefile}, which defines and
 describes many variables that can be supplied via @exec{make}.
 
 @; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-@subsection{Building Minimal Racket}
+@subsection[#:tag "minimal"]{Building Minimal Racket}
 
 Instead of using the top-level makefile, you can go into
 @filepath{racket/src} and follow the @filepath{README.txt} there,

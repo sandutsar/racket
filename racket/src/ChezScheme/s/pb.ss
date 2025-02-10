@@ -1595,7 +1595,7 @@
 
     (define (is-result-as-arg? info)
       (nanopass-case (Ltype Type) (info-foreign-result-type info)
-        [(fp-ftd& ,ftd) #t]
+        [(fp-ftd& ,ftd ,fptd) #t]
         [else #f]))
 
     (define (adjust-active? info)
@@ -1661,7 +1661,7 @@
                 (%seq
                  (set! ,%Carg1 ,lo)
                  ,(%inline call-arena-in ,%Carg1 (immediate ,off))
-                 (set! ,%Carg1 ,lo)
+                 (set! ,%Carg1 ,hi)
                  ,(%inline call-arena-in ,%Carg1 (immediate ,(fx+ off 4)))))))
           (define save-double/unboxed
             (lambda (off)
@@ -1715,7 +1715,7 @@
                                    locs)
                              (cons (constant ffi-typerep-float) encs)
                              (fx+ off 8))]
-                      [(fp-ftd& ,ftd)
+                      [(fp-ftd& ,ftd ,fptd)
                        (loop types
                              (cons (if in?
                                        (load-int off)
@@ -1726,10 +1726,7 @@
                                          e
                                          (box e)))
                                    encs)
-                             (fx+ off (if ($ftd-compound? ftd)
-                                          (constant ptr-bytes)
-                                          (max (constant ptr-bytes)
-                                               ($ftd-size ftd)))))]
+                             (fx+ off (constant ptr-bytes)))]
                       [(fp-void)
                        (loop types
                              (cons (lambda () `(nop)) locs)
@@ -1806,7 +1803,7 @@
                                      (cons (load-double-reg (car fp*)) locs)
                                      (cons (car fp*) live*)
                                      int* (cdr fp*))]
-                              [(fp-ftd& ,ftd)
+                              [(fp-ftd& ,ftd ,fptd)
                                (sorry! who "indirect arguments not supported")]
                               [else
                                (when (null? int*) (sorry! who "too many integer/pointer arguments: ~s" (length in-types)))
@@ -1833,7 +1830,7 @@
                        (values (lambda (lvalue) ; unboxed
                                  `(set! ,lvalue ,(%inline single->double ,%Cfpretval)))
                                (list %Cfpretval))]
-                      [(fp-ftd& ,ftd)
+                      [(fp-ftd& ,ftd ,fptd)
                        (sorry! who "unhandled result type ~s" type)]
                       [else
                        (when (64-bit-type-on-32-bit? type)
@@ -1874,6 +1871,7 @@
                                      [(fp-scheme-object) 'uptr]
                                      [(fp-fixnum) 'uptr]
                                      [(fp-u8*) 'void*]
+                                     [(fp-fptd ,fptd) 'void*]
                                      [(fp-void) 'void]
                                      [else (if (eq? (subset-mode) 'system)
                                                (sorry! who "unhandled type in prototype ~s" type)
@@ -1890,6 +1888,9 @@
             (let* ([arg-type* (info-foreign-arg-type* info)]
                    [result-type (info-foreign-result-type info)])
               (let ([prototype (and (not (adjust-active? info))
+                                    (not (ormap (lambda (conv)
+                                                  (and (pair? conv) (eq? (car conv) 'varargs) (cdr conv)))
+                                                (info-foreign-conv* info)))
                                     (get-prototype (cons result-type arg-type*)))])
                 (cond
                   [prototype

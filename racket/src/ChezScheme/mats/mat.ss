@@ -75,7 +75,8 @@
                     (fprintf (mat-output) "Error reading mat input: ")
                     (display-condition c (mat-output))
                     (reset))))
-            (lambda () (load in))))))))
+            (lambda () (load in))))
+        (fprintf (mat-output) "Finished loading mat\n")))))
 
 (define mat-one-exp
   (lambda (expect th sanitize-all?)
@@ -222,18 +223,6 @@
 
 (set! coverage-table (make-parameter #f))
 
-(set! for-each-mat
-  (lambda (proc mats)
-    ;; this imperative variant of `for-each` is meant to avoid running
-    ;; forever if a continuation somehow gets captured part-way
-    ;; through one mat and restored during a later mat
-    (let loop ()
-      (unless (null? mats)
-        (let ([mat (car mats)])
-          (set! mats (cdr mats))
-          (proc mat)
-          (loop))))))
-
 (set! mat-file
   (lambda (dir)
     (unless (string? dir)
@@ -269,7 +258,8 @@
                     (if universe-ct
                         (let-values ([(ct . ignore) (with-profile-tracker go)])
                           (store-coverage universe-ct ct (format "~a.covout" mat)))
-                        (go))))
+                        (go))
+                    (printf "\npeak memory use: ~s\n" (maximum-memory-bytes))))
                 (lambda () (close-output-port (mat-output))))))))))
 
 (set! record-run-coverage
@@ -391,6 +381,13 @@
                           (or (fx< i 0)
                               (and (fx= (fxvector-ref x i) (fxvector-ref y i))
                                    (f (fx1- i))))))]
+                  [(flvector? x)
+                   (and (flvector? y)
+                        (fx= (flvector-length x) (flvector-length y))
+                        (let f ([i (fx- (flvector-length x) 1)])
+                          (or (fx< i 0)
+                              (and (eqv? (flvector-ref x i) (flvector-ref y i))
+                                   (f (fx1- i))))))]
                   [(box? x) (and (box? y) (e? (unbox x) (unbox y)))]
                   [else #f])
                 (begin
@@ -475,7 +472,7 @@
       (let* ([stdout-stuff (slurp from-stdout)]
              [stderr-stuff (slurp from-stderr)])
         (when (string=? stderr-stuff "")
-          (printf "$separate-eval command succeeeded with\nSTDERR:\n~a\nSTDOUT:\n~a\nEND\n" stderr-stuff stdout-stuff))
+          (printf "$separate-eval command succeeded with\nSTDERR:\n~a\nSTDOUT:\n~a\nEND\n" stderr-stuff stdout-stuff))
         (unless (string=? stderr-stuff "")
           (printf "$separate-eval command failed with\nSTDERR:\n~a\nSTDOUT:\n~a\nEND\n" stderr-stuff stdout-stuff)
           (errorf who "~a" stderr-stuff))
@@ -523,7 +520,7 @@
   (lambda () #f))
 
 (define pb?
-  (if (memq (machine-type) '(pb tpb pb32 tpb32))
+  (if (memq (machine-type) '(pb pb32l pb32b pb64l pb64b tpb tpb32l tpb32b tpb64l tpb64b))
       (lambda () #t)
       (lambda () #f)))
 
@@ -619,3 +616,20 @@
                                 (set! counter n)
                                 (fx= n 0))))])
         (collect)))))
+
+(define-syntax retry-for-spurious
+  (let ([mt (symbol->string (machine-type))])
+    (if (or (memq (substring mt 0 2) '("a6" "i3"))
+            (memq (substring mt 0 3) '("ta6" "ti3")))
+        ;; no retry loop needed on x86
+        (lambda (stx)
+          (syntax-case stx ()
+            [(_ e) #'e]))
+        ;; add retry loop
+        (lambda (stx)
+          (syntax-case stx ()
+            [(_ e) #'(let loop ([n 10])
+                       ;; 10 spurious failures in a row is vanishingly unlikely?
+                       (or e
+                           (and (> n 0)
+                                (loop (- n 1)))))])))))

@@ -1,4 +1,5 @@
 (module base "pre-base.rkt"
+  (#%declare #:flatten-requires)
 
   (#%require "hash.rkt"
              "list.rkt" ; shadows `reverse', `mem{q,v,ber}'
@@ -26,6 +27,7 @@
                               with-input-from-file
                               with-output-to-file
                               directory-list
+                              copy-file
                               regexp-replace*
                               new-apply-proc
                               do-raise-syntax-error
@@ -55,6 +57,7 @@
              (rename -with-input-from-file with-input-from-file)
              (rename -with-output-to-file with-output-to-file)
              (rename -directory-list directory-list)
+             (rename -copy-file copy-file)
              (rename -raise-syntax-error raise-syntax-error)
              call-with-input-file*
              call-with-output-file*))

@@ -6,7 +6,9 @@
 (require racket/serialize
          racket/file
          racket/flonum
-         racket/fixnum)
+         racket/fixnum
+         racket/treelist
+         racket/mutable-treelist)
 
 ;; ----------------------------------------
 
@@ -152,12 +154,15 @@
 (test-ser (procedure-arity (lambda (x . y) 10)))
 (test-ser (make-immutable-hasheq '((1 . a) (2 . b))))
 (test-ser (make-immutable-hasheqv '((1 . a) (2 . b))))
+(test-ser (make-immutable-hashalw '(("x" . a) ("y" . b))))
 (test-ser (make-immutable-hash '(("x" . a) ("y" . b))))
 (test-ser (mk-ht make-hasheq))
 (test-ser (mk-ht make-hasheqv))
+(test-ser (mk-ht make-hashalw))
 (test-ser (mk-ht make-hash))
 (test-ser (mk-ht make-weak-hasheq))
 (test-ser (mk-ht make-weak-hasheqv))
+(test-ser (mk-ht make-weak-hashalw))
 (test-ser (mk-ht make-weak-hash))
 (test-ser #s(a 0 1 2))
 (test-ser #s((a q 2) 0 1 2))
@@ -165,6 +170,7 @@
 (test-ser (flvector 0.1 2.0 30e3))
 
 (test-ser (set 'set 0 1 2))
+(test-ser (setalw 'setalw 0 1 2))
 (test-ser (seteqv 'seteqv 0 1 2))
 (test-ser (seteq 'seteq 0 1 2))
 
@@ -199,6 +205,12 @@
 
 (test-ser (make-srcloc 1 2 3 4 5))
 (test-ser (make-srcloc (string->path "/tmp/test.rkt") 2 3 4 5))
+
+(test-ser (treelist 1 "b" 'cee))
+(test-ser (mutable-treelist 1 "b" 'cee))
+(test-ser (let ([mtl (mutable-treelist 1 "b" 'cee)])
+            (mutable-treelist-add! mtl mtl)
+            mtl))
 
 ;; Simple sharing
 (let ([p (cons 1 2)])

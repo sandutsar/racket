@@ -268,6 +268,21 @@
      (print-vector p who v mode o max-length graph config "fl" flvector-length flvector-ref equal?)]
     [(fxvector? v)
      (print-vector p who v mode o max-length graph config "fx" fxvector-length fxvector-ref eq?)]
+    [(stencil-vector? v)
+     (define lst (let loop ([i 0])
+                   (if (= i (stencil-vector-length v))
+                       '()
+                       (cons (stencil-vector-ref v i) (loop (add1 i))))))
+     (print-list p who lst
+                 (if (eq? mode DISPLAY-MODE) DISPLAY-MODE WRITE-MODE)
+                 o max-length graph config
+                 (string-append "#<stencil "
+                                (number->string (stencil-vector-mask v))
+                                (if (eqv? 0 (stencil-vector-mask v))
+                                    ""
+                                    ": "))
+                 #f
+                 ">")]
     [(box? v)
      (cond
        [(config-get config print-box)
@@ -291,6 +306,7 @@
            (define prefix (cond
                             [(hash-eq? v) "(hasheq"]
                             [(hash-eqv? v) "(hasheqv"]
+                            [(hash-equal-always? v) "(hashalw"]
                             [else "(hash"]))
            (print-list p who l mode o max-length graph config #f prefix)]
           [else
@@ -298,7 +314,7 @@
        [else
         (check-unreadable who config mode v)
         (write-string/max "#<hash>" o max-length)])]
-    [(and (eq? mode WRITE-MODE)
+    [(and (not (eq? mode DISPLAY-MODE))
           (not (config-get config print-unreadable))
           (not (prefab-struct-key v))
           ;; Regexps are a special case: custom writers that produce readable input

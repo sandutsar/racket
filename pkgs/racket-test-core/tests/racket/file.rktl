@@ -575,11 +575,11 @@
   (let ([q (open-input-file tempfilename)])
     (test (port-file-identity p) port-file-identity q)
     (close-input-port q)
-    (err/rt-test (file-position q) exn:fail?)
-    (err/rt-test (port-file-identity q) exn:fail?))
+    (err/rt-test (file-position q) exn:fail? #rx"closed")
+    (err/rt-test (port-file-identity q) exn:fail? #rx"closed"))
   (close-output-port p)
-  (err/rt-test (file-position p) exn:fail?)
-  (err/rt-test (port-file-identity p) exn:fail?))
+  (err/rt-test (file-position p) exn:fail? #rx"closed")
+  (err/rt-test (port-file-identity p) exn:fail? #rx"closed"))
 (err/rt-test (let ([c (make-custodian)])
 	       (let ([p (parameterize ([current-custodian c])
 				      (open-output-file tempfilename #:exists 'replace))])
@@ -879,12 +879,12 @@
 (err/rt-test (read-char (make-input-port #f void void void)))
 (err/rt-test (peek-char (make-input-port #f void void void)))
 (arity-test make-input-port 4 10)
-(err/rt-test (make-custom-input-port #f 8 void void))
-(err/rt-test (make-custom-input-port #f void 8 void))
-(err/rt-test (make-custom-input-port #f void void 8))
-(err/rt-test (make-custom-input-port #f cons void void))
-(err/rt-test (make-custom-input-port #f void add1 void))
-(err/rt-test (make-custom-input-port #f void void add1))
+(err/rt-test (make-input-port #f 8 void void))
+(err/rt-test (make-input-port #f void 8 void))
+(err/rt-test (make-input-port #f void void 8))
+(err/rt-test (make-input-port #f cons void void))
+(err/rt-test (make-input-port #f void add1 void))
+(err/rt-test (make-input-port #f void void add1))
 
 (test #t output-port? (make-output-port #f always-evt void void))
 (test #t output-port? (make-output-port #f always-evt void void))
@@ -895,7 +895,7 @@
 (err/rt-test (make-output-port #f always-evt void 8))
 (err/rt-test (make-output-port #f always-evt add1 void))
 (err/rt-test (make-output-port #f always-evt void add1))
-(err/rt-test (write-special 'foo (make-custom-output-port void always-evt void void)) exn:application:mismatch?)
+(err/rt-test (write-special 'foo (make-output-port void always-evt void void)) exn:application:mismatch?)
 
 (let ([p (make-input-port 
 	  'name
@@ -961,8 +961,12 @@
   (close-input-port p)
   (close-input-port q))
 
-;; We should be able to install the current permissions:
+(test #t exact-integer? (file-or-directory-modify-seconds "tmp1"))
+(test #t exact-integer? (file-or-directory-modify-seconds "tmp1" #f))
+
+;; We should be able to install the current permissions and timestamp:
 (test (void) file-or-directory-permissions "tmp1" (file-or-directory-permissions "tmp1" 'bits))
+(test (void) file-or-directory-modify-seconds "tmp1" (file-or-directory-modify-seconds "tmp1"))
 
 (define test-file 
   (open-output-file "tmp2" #:exists 'truncate))
@@ -1918,6 +1922,8 @@
        (lambda (evt? localhost [serve-localhost #f])
 	 (let* ([l (tcp-listen 0 5 #t serve-localhost)]
                 [pn (listen-port l)])
+           (test #f tcp-accept-ready? l)
+           (test #f sync/timeout 0 l)
 	   (let-values ([(r1 w1) (tcp-connect localhost pn)]
 			[(r2 w2) (if evt?
 				     (apply values (sync (tcp-accept-evt l)))
@@ -1949,7 +1955,7 @@
                                              ;; In case IPv6 is supported by the OS but not for the loopback
                                              ;; devce, we also catch "Cannot assign requested address"
                                              (unless (regexp-match?
-                                                      #rx"family not supported by protocol|no address associated with name|Cannot assign requested address"
+                                                      #rx"family not supported by protocol|no address associated with name|Cannot assign requested address|Address family for hostname not supported"
                                                       (exn-message e))
                                                (raise e)))])
     ;; Supply listener hostname, so we can check whether `listen` receives IPv6 connections
@@ -1983,7 +1989,10 @@
   (sync t)
   
   (custodian-shutdown-all c)
-  (port-closed? i))
+  (test #t port-closed? i)
+  (tcp-close l)
+  (close-input-port ci)
+  (close-output-port co))
 
 ;;----------------------------------------------------------------------
 ;; Security guards:
@@ -2088,7 +2097,10 @@
                                             "           (find-system-path 'cache-dir)))")))
       (begin0
         (cadr (read i))
-        (subprocess-wait s))))
+        (subprocess-wait s)
+        (close-input-port i)
+        (close-output-port o)
+        (close-input-port e))))
   (define (touch f) (close-output-port (open-output-file f #:exists 'truncate)))
 
   (define dir-syms '(home-dir pref-dir pref-file init-dir init-file addon-dir cache-dir))
@@ -2261,6 +2273,9 @@
     (err/rt-test (udp-bind! early-udp "localhost" 40000)  (net-reject? 'udp-bind! "localhost" 40000 'server))
     (err/rt-test (udp-connect! early-udp "localhost" 40000)  (net-reject? 'udp-connect! "localhost" 40000 'client))
     (err/rt-test (udp-send-to early-udp "localhost" 40000 #"hi")  (net-reject? 'udp-send-to "localhost" 40000 'client))))
+
+(when early-udp
+  (udp-close early-udp))
 
 ;; Interaction with `system-type` - - - - - - - - - - - - - - - - - - -
 
@@ -2669,37 +2684,48 @@
   (define file (build-path dir "f"))
 
   (define (check open)
-    (open file #o444)
-    (if (eq? 'windows (system-type))
-        (test #f memq 'write (file-or-directory-permissions file))
-        ;; umask might drop additional bits from mode #o444
-        (test 0 bitwise-and (bitwise-not #o444) (file-or-directory-permissions file 'bits)))
-    (delete-file file))
+    (for ([replace? (in-list '(#f #t))]
+          [mode (in-list '(#o444 #o666))])
+      (open file mode replace?)
+      (if (eq? 'windows (system-type))
+          (test (and (positive? (bitwise-and mode #x2)) '(write read))
+                memq 'write (file-or-directory-permissions file))
+          (if replace?
+              (test mode bitwise-and #o777 (file-or-directory-permissions file 'bits))
+              ;; umask might drop additional bits from mode #o444
+              (test 0 bitwise-and (bitwise-not mode) (file-or-directory-permissions file 'bits))))
+      (delete-file file)))
 
-  (check (lambda (file perms)
-           (close-output-port (open-output-file file #:exists 'truncate #:permissions perms))))
-  (check (lambda (file perms)
+  (check (lambda (file perms replace?)
+           (close-output-port (open-output-file file #:exists 'truncate #:permissions perms
+                                                #:replace-permissions? replace?))))
+  (check (lambda (file perms replace?)
            (close-output-port (open-output-file file #:exists 'truncate #:permissions perms))
-           (close-output-port (open-output-file file #:exists 'replace #:permissions perms))))
-  (check (lambda (file perms)
+           (close-output-port (open-output-file file #:exists 'replace #:permissions perms
+                                                #:replace-permissions? replace?))))
+  (check (lambda (file perms replace?)
            (define-values (i o)
-             (open-input-output-file file #:exists 'truncate #:permissions perms))
+             (open-input-output-file file #:exists 'truncate #:permissions perms
+                                     #:replace-permissions? replace?))
            (close-input-port i)
            (close-output-port o)))
-  (check (lambda (file perms)
+  (check (lambda (file perms replace?)
            (with-output-to-file file
              #:permissions perms
              #:exists 'truncate
+             #:replace-permissions? replace?
              void)))
-  (check (lambda (file perms)
+  (check (lambda (file perms replace?)
            (call-with-output-file file
              #:permissions perms
              #:exists 'truncate
+             #:replace-permissions? replace?
              void)))
-  (check (lambda (file perms)
+  (check (lambda (file perms replace?)
            (call-with-output-file* file
              #:permissions perms
              #:exists 'truncate
+             #:replace-permissions? replace?
              void)))
 
   (delete-directory dir))
@@ -2871,12 +2897,16 @@
 (arity-test file-or-directory-stat 1 2)
 
 ; Write regular file and check stat data.
-(let ()
+(define (check-stat via-port)
   (define temp-file-path (build-path work-dir "stat-test"))
   (define TEST-CONTENT "stat test content")
   (display-to-file TEST-CONTENT temp-file-path #:exists 'truncate)
   (void (call-with-input-file temp-file-path read-byte))
-  (define stat-result (file-or-directory-stat temp-file-path))
+  (define stat-result (if via-port
+                          (if (eq? via-port 'input)
+                              (call-with-input-file temp-file-path port-file-stat)
+                              (call-with-output-file temp-file-path #:exists 'append port-file-stat))
+                          (file-or-directory-stat temp-file-path)))
   (test #t hash-eq? stat-result)
   (define expected-stat-keys '(device-id
                                inode
@@ -2949,7 +2979,19 @@
   (test (stat-ref 'creation-time-seconds) nano->secs (stat-ref 'creation-time-nanoseconds))
   (delete-file temp-file-path))
 
+(check-stat #f)
+(check-stat 'input)
+(check-stat 'output)
+
 (err/rt-test (file-or-directory-stat "thisDoesNotExistAtAll") exn:fail:filesystem?)
+(err/rt-test (port-file-stat (open-output-bytes)))
+(err/rt-test (port-file-stat (let ()
+                               (define temp-file-path (build-path work-dir "stat-test"))
+                               (define p (open-output-file temp-file-path))
+                               (close-output-port p)
+                               (delete-file temp-file-path)
+                               p))
+             exn:fail?)
 
 ; Test symlink-related features.
 (unless (eq? (system-type) 'windows)

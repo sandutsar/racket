@@ -13,6 +13,10 @@
 /ti3*/
 /arm*/
 /tarm*/
+/rv64*/
+/trv64*/
+/la64*/
+/tla64*/
 /ppc*/
 /tppc*/
 /xc-*/
@@ -51,3 +55,4 @@
 /release_notes/*.log
 /release_notes/release_notes.pdf
 /rktboot/compiled/
+/expr.md

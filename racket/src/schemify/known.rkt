@@ -8,11 +8,13 @@
          known-authentic known-authentic?
          known-copy? known-copy known-copy-id
          known-literal known-literal? known-literal-value
+         known-ctype known-ctype? known-ctype-rep
          known-procedure known-procedure? known-procedure-arity-mask
          known-procedure/single-valued known-procedure/single-valued?
          known-procedure/no-prompt known-procedure/no-prompt?
          known-procedure/no-prompt/multi known-procedure/no-prompt/multi?
          known-procedure/no-return known-procedure/no-return?
+         known-procedure/parameter known-procedure/parameter?
          known-procedure/folding known-procedure/folding?
          known-procedure/folding/limited known-procedure/folding/limited? known-procedure/folding/limited-kind
          known-procedure/can-inline known-procedure/can-inline? known-procedure/can-inline-expr
@@ -68,6 +70,9 @@
 ;; literal for constant propagation:
 (struct known-literal (value) #:prefab #:omit-define-syntaxes #:super struct:known-consistent)
 
+;; ctype for constant propagation:
+(struct known-ctype (rep) #:prefab #:omit-define-syntaxes #:super struct:known-constant)
+
 ;; procedure with arity mask; the procedure has to be a procedure from the host
 ;; Scheme's perspective --- not an applicable struct or chaperoned procedure
 (struct known-procedure (arity-mask) #:prefab #:omit-define-syntaxes #:super struct:known-consistent)
@@ -85,6 +90,10 @@
 
 ;; procedure that does not return, because it always escapes
 (struct known-procedure/no-return () #:prefab #:omit-define-syntaxes #:super struct:known-procedure/single-valued)
+
+;; procedure that succeeds on 0 arguments and doesn't call arbitrary other code,
+;; but might consult state and/or the continuation
+(struct known-procedure/parameter () #:prefab #:omit-define-syntaxes #:super struct:known-procedure/single-valued)
 
 ;; procedure that can be inlined, where the `expr` is in pre-schemify form
 (struct known-procedure/can-inline (expr) #:prefab #:omit-define-syntaxes #:super struct:known-procedure)

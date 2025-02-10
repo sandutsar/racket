@@ -4,9 +4,11 @@
 (Section 'syntax)
 
 (require syntax/srcloc
-         syntax/strip-context)
+         syntax/strip-context
+         racket/case)
 
 ;; ----------------------------------------
+(test #t free-identifier=? #'lambda #'λ)
 
 (test 0 'with-handlers (with-handlers () 0))
 (test 1 'with-handlers (with-handlers ([void void]) 1))
@@ -234,9 +236,9 @@
 (test 0 'when (when (< 1 2) (cons 1 2) 0))
 (test-values '(0 10) (lambda () (when (< 1 2) (values 0 10))))
 (syntax-test #'when)
-(syntax-test #'(when))
+(syntax-test #'(when) #rx"missing test expression and body")
 (syntax-test #'(when . 1))
-(syntax-test #'(when 1))
+(syntax-test #'(when 1) #rx"missing body")
 (syntax-test #'(when 1 . 2))
 (error-test #'(when (values 1 2) 0) arity?)
 
@@ -246,9 +248,9 @@
 (test 0 'unless (unless (> 1 2) (cons 1 2) 0))
 (test-values '(0 10) (lambda () (unless (> 1 2) (values 0 10))))
 (syntax-test #'unless)
-(syntax-test #'(unless))
+(syntax-test #'(unless) #rx"missing test expression and body")
 (syntax-test #'(unless . 1))
-(syntax-test #'(unless 1))
+(syntax-test #'(unless 1) #rx"missing body")
 (syntax-test #'(unless 1 . 2))
 (error-test #'(unless (values 1 2) 0) arity?)
 
@@ -347,6 +349,28 @@
 			[(bye) 'a]
 			[(hello) (values 10 9)]
 			[else #f])))
+(test "none" 'case/equal-always (case/equal-always (string-append "a" "b")
+                                                   (("ab" "ac") "a")
+                                                   (else "none")))
+(test "a" 'case/equal-always (case/equal-always (string->immutable-string (string-append "a" "b"))
+                                                (("ab" "ac") "a")
+                                                (else "none")))
+(test 'composite 'case/eqv (case/eqv (* 2 3)
+                                     ((2 3 5 7) 'prime)
+                                     ((1 4 6 8 9) 'composite)))
+(test "none" 'case/eqv (case/eqv (string->immutable-string
+                                  (string-append "a" (if (zero? (random 1)) "b" "_")))
+                                 (("ab" "ac") "a")
+                                 (else "none")))
+(test "a" 'case/eqv (case/eqv (datum-intern-literal (string-append "a" "b"))
+                              (("ab" "ac") "a")
+                              (else "none")))
+(test "2^100" 'case/eqv (case/eqv (expt 2 (if (zero? (random 1)) 100 0))
+                                  ((1267650600228229401496703205376) "2^100")
+                                  (else "none")))
+(test "none" 'case/eq (case/eq (expt 2 (if (zero? (random 1)) 100 0))
+                               ((1267650600228229401496703205376) "2^100")
+                               (else "none")))
 (error-test #'(cond [(values 1 2) 8]) arity?)
 (error-test #'(case (values 1 2) [(a) 8]) arity?)
 (syntax-test #'(case 1 []) #rx"ill-formed clause")
@@ -359,6 +383,10 @@
 (syntax-test #'(case 1 [(y) 5] [(x)]) #rx"missing expression after datum sequence")
 (syntax-test #'(case 1 [(x) . 8]) #rx"illegal use of `.'")
 (syntax-test #'(case 1 [(x) 10] . 9) #rx"illegal use of `.'")
+(syntax-test #'(case/equal 1 []) #rx"ill-formed clause")
+(syntax-test #'(case/equal-always 1 []) #rx"ill-formed clause")
+(syntax-test #'(case/eq 1 []) #rx"ill-formed clause")
+(syntax-test #'(case/eqv 1 []) #rx"ill-formed clause")
 
 ;; test larger `case' dispatches to trigger for binary-search
 ;; and hash-table-based dispatch:
@@ -970,7 +998,17 @@
   (test #f sync/timeout 0 pr)
   (test 'done force pr)
   (test #t promise-forced? pr)
+  (test #f promise-running? pr)
   (test (void) sync/timeout 0 pr))
+
+(let* ([p (delay/sync (sync never-evt))]
+       [th (thread (lambda () (force p)))])
+  (test #f promise-forced? p)
+  (test #f promise-running? p)
+  (sync (system-idle-evt))
+  (test #f promise-forced? p)
+  (test #t promise-running? p)
+  (kill-thread th))
 
 (test '(list 3 4) 'quasiquote `(list ,(+ 1 2) 4))
 (test '(list a (quote a)) 'quasiquote (let ((name 'a)) `(list ,name ',name)))
@@ -1382,6 +1420,26 @@
 (syntax-test #'(let ([#%app 5])
 		 (+ 1 2)))
 
+(err/rt-test ('oops (/ 1 0)) exn:fail:contract:divide-by-zero?)
+(test "#<procedure:*>\n"
+      'left-to-right-error
+      (let ([o (open-output-string)])
+        (parameterize ([current-output-port o])
+          (with-handlers ([exn:fail? void])
+            ((void)
+             (letrec ((E (writeln *))
+                      (H 1))
+               (let () H)))))
+        (get-output-string o)))
+
+
+(err/rt-test ((if (zero? (random 1)) 'oops 'nope) (/ 1 0)) exn:fail:contract:divide-by-zero?)
+(err/rt-test ((void)
+              (letrec ((E (/ 1 0))
+                       (H 1))
+                (let () H)))
+             exn:fail:contract:divide-by-zero?)
+
 (test 3 '#%app (#%app + 1 2))
 (syntax-test #'())
 (syntax-test #'(#%app))
@@ -1592,23 +1650,24 @@
                                                           (define x 10))
                                   (abcdefg)))
 
-(test '(1 2)
+(test 'inner
       'nested-splicing-expr
-      (splicing-let ([a 1])
-                    (list a
-                          (splicing-let ([a 2])
-                                        a))))
+      (let ()
+        (splicing-let ([a 'outer])
+          (splicing-let ([a 'inner])
+            a))))
 
 (test '(1 2)
       'nested-splicing-def
       (let ()
         (splicing-let ([a 1])
-                      (define x a)
-                      (splicing-let ([a 2])
-                                    (define y a)))
+          (define x a)
+          (splicing-let ([a 2])
+            (define y a)))
         (list x y)))
 
-(test 11 'nested-splicing-def-use-site
+(test 11
+      'nested-splicing-def-use-site
       (let ()
         (splicing-let ([z 1])
           (define-syntax-rule (m a b)
@@ -1621,10 +1680,109 @@
       'nested-splicing-syntax
       (let ()
         (splicing-let-syntax ([a (syntax-rules () [(_) 1])])
-                             (define x (a))
-                             (splicing-let-syntax ([a (syntax-rules () [(_) 2])])
-                                                  (define y (a))))
+          (define x (a))
+          (splicing-let-syntax ([a (syntax-rules () [(_) 2])])
+            (define y (a))))
         (list x y)))
+
+(test 'inner
+      'nested-splicing-expr/letrec-syntaxes+values
+      (let ()
+        (splicing-letrec-syntaxes+values () ([(a) 'outer])
+          (splicing-letrec-syntaxes+values () ([(a) 'inner])
+            a))))
+
+(test '(1 2)
+      'nested-splicing-def/letrec-syntaxes+values
+      (let ()
+        (splicing-letrec-syntaxes+values () ([(a) 1])
+          (define x a)
+          (splicing-letrec-syntaxes+values () ([(a) 2])
+            (define y a)))
+        (list x y)))
+
+(test 11
+      'nested-splicing-def-use-site/letrec-syntaxes+values1
+      (let ()
+        (splicing-letrec-syntaxes+values () ([(z) 1])
+          (define-syntax-rule (m a b)
+            (splicing-letrec-syntaxes+values () ([(a) 10])
+              (define b (+ a z))))
+          (m x y))
+        y))
+
+(test 11
+      'nested-splicing-def-use-site/letrec-syntaxes+values2
+      (let ()
+        (splicing-letrec-syntaxes+values ([(m) (syntax-rules ()
+                                                 [(_ a b)
+                                                  (splicing-letrec-syntaxes+values () ([(a) 10])
+                                                    (define b (+ a z)))])])
+                                         ([(z) 1])
+          (m x y))
+        y))
+
+(test '(1 2)
+      'nested-splicing-syntax/letrec-syntaxes+values
+      (let ()
+        (splicing-letrec-syntaxes+values ([(a) (syntax-rules () [(_) 1])]) ()
+          (define x (a))
+          (splicing-letrec-syntaxes+values ([(a) (syntax-rules () [(_) 2])]) ()
+            (define y (a))))
+        (list x y)))
+
+(test 'inner
+      'nested-splicing-expr/local
+      (let ()
+        (splicing-local [(define a 'outer)]
+          (splicing-local [(define a 'inner)]
+            a))))
+
+(test '(1 2)
+      'nested-splicing-def/local
+      (let ()
+        (splicing-local [(define a 1)]
+          (define x a)
+          (splicing-local [(define a 2)]
+            (define y a)))
+        (list x y)))
+
+(test 11
+      'nested-splicing-def-use-site/local1
+      (let ()
+        (splicing-local [(define z 1)]
+          (define-syntax-rule (m a b)
+            (splicing-local [(define a 10)]
+              (define b (+ a z))))
+          (m x y))
+        y))
+
+(test 11
+      'nested-splicing-def-use-site/local2
+      (let ()
+        (splicing-local [(define z 1)
+                         (define-syntax-rule (m a b)
+                           (splicing-local [(define a 10)]
+                             (define b (+ a z))))]
+          (m x y))
+        y))
+
+(test '(1 2)
+      'nested-splicing-syntax/local
+      (let ()
+        (splicing-local [(define-syntax-rule (a) 1)]
+          (define x (a))
+          (splicing-local [(define-syntax-rule (a) 2)]
+            (define y (a))))
+        (list x y)))
+
+(test '(1 2 3)
+      'nested-splicing-issue#4993
+      (let ()
+        (splicing-local []
+          (splicing-local [(define one 1)
+                           (define (two) (add1 one))]
+            (list one (two) 3)))))
 
 ;; ----------------------------------------
 
@@ -2393,6 +2551,7 @@
 
   (test #t check '(a b))
   (test #t check '#(a b #hash((c . 9))))
+  (test #t check '#(a b #hashalw(("c" . 10) ("d" . 11))))
   (test #t check '(#hasheqv((10 . 11) (12 . 13)) #&"str" #s(color r G #b0)))
   (test #t check '(#hasheq((x . 11) (y . 13) (z . #f)) (1 . 2))))
 

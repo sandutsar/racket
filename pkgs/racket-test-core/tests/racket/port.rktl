@@ -1,5 +1,6 @@
 
 (load-relative "loadtest.rktl")
+(require compiler/find-exe)
 
 (Section 'port)
 
@@ -79,6 +80,8 @@
   (test-file #t))
 
 (let-values ([(r w) (make-pipe)])
+  (test #t pipe-port? r)
+  (test #t pipe-port? w)
   (write-byte 200 w)
   (test #t byte-ready? r)
   (test #f char-ready? r))
@@ -89,6 +92,9 @@
   (close-input-port i)
   (test #t evt? (sync/timeout 0 (port-progress-evt i)))
   (test 0 peek-bytes-avail! (make-bytes 10) 0 (port-progress-evt i) i))
+
+(test #f pipe-port? (open-input-string ""))
+(test #f pipe-port? (open-output-string))
 
 (test #t string-port? (open-input-string ""))
 (test #t string-port? (open-input-bytes #""))
@@ -504,6 +510,19 @@
   (test #t write-special-avail* 'hello /dev/null-out)
   (test 5 write-bytes-avail #"hello" /dev/null-out))
 
+(for ([pre? (in-list '(#f #t))])
+  (let ()
+    (define exe (find-exe))
+    (define-values (sp stdout-in stdin-out stderr-in)
+      (subprocess #f #f #f exe "-q" "-n"))
+    (subprocess-wait sp)
+    (when pre?
+      ;; write some buffered bytes
+      (write-bytes #"ok" stdin-out))
+    ;; make sure `write-bytes-avail-evt` doesn't try to buffer
+    (err/rt-test/once (sync (write-bytes-avail-evt #"hello" stdin-out))
+                      exn:fail:filesystem?)))
+
 ;; A part that accumulates bytes as characters in a list,
 ;;  but not in a thread-safe way:
 (define accum-list null)
@@ -750,6 +769,100 @@
   (test-values '(3 1 5) (lambda () (port-next-location p)))
   (test eof read-char p)
   (test-values '(3 1 5) (lambda () (port-next-location p))))
+
+(let ([p (open-input-bytes #"\rx\ny")])
+  (port-count-lines! p)
+  (test-values '(1 0 1) (lambda () (port-next-location p)))
+  (test #"\rx" read-bytes 2 p)
+  (test-values '(2 1 3) (lambda () (port-next-location p)))
+  (test #\newline read-char p)
+  (test-values '(3 0 4) (lambda () (port-next-location p)))
+  (test #\y read-char p)
+  (test-values '(3 1 5) (lambda () (port-next-location p)))
+  (test eof read-char p)
+  (test-values '(3 1 5) (lambda () (port-next-location p))))
+
+;; more port location tessting
+(let ()
+  (define-values (i o) (make-pipe))
+  (port-count-lines! i)
+  (port-count-lines! o)
+  (define (next-location p)
+    (define-values (line col pos) (port-next-location p))
+    (list line col pos))
+  (test '(1 0 1) next-location i)
+  (test '(1 0 1) next-location o)
+
+  (write-bytes #"a" o)
+  (test '(1 1 2) next-location o)
+  (write-bytes #"\n b" o)
+  (test '(2 2 5) next-location o)
+
+  (test #"a" read-bytes 1 i)
+  (test '(1 1 2) next-location i)
+  (test #"\n" read-bytes 1 i)
+  (test '(2 0 3) next-location i)
+  (test #" b" read-bytes 2 i)
+  (test '(2 2 5) next-location i)
+
+  (write-bytes #"x\r" o)
+  (test '(3 0 7) next-location o)
+  (write-bytes #"\n" o)
+  (test '(3 0 7) next-location o)
+  (write-bytes #"!" o)
+  (test '(3 1 8) next-location o)
+
+  (test #"x\r" read-bytes 2 i)
+  (test '(3 0 7) next-location i)
+  (test #"\n!" read-bytes 2 i)
+  (test '(3 1 8) next-location i)
+
+  (write-string "e\u300" o)
+  (test '(3 3 10) next-location o)
+  (test #"e" read-bytes 1 i)
+  (test '(3 2 9) next-location i)
+  (test #"\314" read-bytes 1 i)
+  (test '(3 3 10) next-location i) ; tentatively incremented mid-UTF-8
+  (test #"\200" read-bytes 1 i)
+  (test '(3 3 10) next-location i)  ; UTF-8 concluded
+
+  (write-string "!" o)
+  (test '(3 4 11) next-location o)
+  (test #"!" read-bytes 1 i)
+  (test '(3 4 11) next-location i)
+
+  (write-string "\r" o)
+  (test '(4 0 12) next-location o)
+  (test #"\r" read-bytes 1 i)
+  (test '(4 0 12) next-location i)
+
+  (write-string "\n" o)
+  (test '(4 0 12) next-location o)
+  (test #"\n" read-bytes 1 i)
+  (test '(4 0 12) next-location i)
+
+  (write-string "." o)
+  (test '(4 1 13) next-location o)
+  (test #"." read-bytes 1 i)
+  (test '(4 1 13) next-location i)
+
+  (write-string "app\u03BBe" o)
+  (test '(4 6 18) next-location o)
+  (test "app\u03BBe" read-string 5 i)
+  (test '(4 6 18) next-location i)
+
+  (void))
+
+(let ()
+  (define i (open-input-string "\u0019\u0000\u000E"))
+  (port-count-lines! i)
+  (define (next-location p)
+    (define-values (line col pos) (port-next-location p))
+    (list line col pos))
+
+  (test '(1 0 1) next-location i)
+  (test "\u0019\u0000\u000E" read-string 3 i)
+  (test '(1 3 4) next-location i))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Check that if the initial commit thread is killed, then
@@ -1055,7 +1168,8 @@
     (define pos (file-position ifile))
     (test "def" read-line ifile)
     (file-position ifile pos)
-    (test "def" read-line ifile))
+    (test "def" read-line ifile)
+    (close-input-port ifile))
 
   (let* ([bs (call-with-input-file path
 	       #:mode 'text 
@@ -1199,6 +1313,45 @@
   (define str (make-string 10))
   (test 5 peek-string! str 0 in)
   (test "hello" substring str 0 5))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(parameterize ([current-input-port (open-input-nowhere)])
+  (test eof read)
+  (test eof read-char)
+  (test eof read-byte)
+  (test eof read-line)
+  (test eof read-char-or-special))
+
+(test 'nowhere object-name (open-input-nowhere))
+(test 'apple   object-name (open-input-nowhere 'apple))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(for ([poll-proc (in-list (list
+                           (lambda (i)
+                             (byte-ready? i))
+                           (lambda (i)
+                             (peek-bytes-avail!* (make-bytes 1) 0 #f i))))])
+  (define peeked? #f)
+  (define polled? #f)
+  (define i
+    (make-input-port
+     'test
+     (lambda (bstr)
+       never-evt)
+     (lambda (bstr skip evt)
+       (set! peeked? #t)
+       (poll-guard-evt
+        (lambda (poll?)
+          (when poll?
+            (set! polled? #t))
+          (wrap-evt always-evt (lambda (v) 0)))))
+     void))
+  ;; should trigger a poll on an evt:
+  (poll-proc i)
+  (test #t values peeked?)
+  (test #t values polled?))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

@@ -298,7 +298,7 @@ are not supported and @racket[read-single-flonum] is set to
 would otherwise be produced. Special infinity and not-a-number flonums
 and single-flonums are distinct; specials with the @litchar{.0}
 suffix, like @racket[+nan.0], are double-precision flonums, while
-specials with the @litchar{.f} suffix, like @racketvalfont{+nan.0}, 
+specials with the @litchar{.f} suffix, like @racketvalfont{+nan.f}, 
 are single-flonums if enabled though @racket[read-single-flonum].
 
 A @litchar{#} in an @nunterm{inexact} number is the same as
@@ -320,7 +320,7 @@ letter stands for both itself and its uppercase form.
                                        @BNF-seq[@nunterm{unsigned-integer} @litchar{/} @nunterm{unsigned-integer}])
      (list @nunterm{exact-integer} @BNF-seq[@optional{@nonterm{sign}} @nunterm{unsigned-integer}])
      (list @nunterm{unsigned-integer} @kleeneplus{@nunterm{digit}})
-     (list @nunterm{exact-complex} @BNF-seq[@nunterm{exact-rational} @nonterm{sign} @nunterm{unsigned-rational} @litchar{i}])
+     (list @nunterm{exact-complex} @BNF-seq[@optional{@nunterm{exact-rational}} @nonterm{sign} @optional[@nunterm{unsigned-rational}] @litchar{i}])
      (list @nunterm{inexact} @BNF-alt[@nunterm{inexact-real}
                                       @nunterm{inexact-complex}])
      (list @nunterm{inexact-real} @BNF-seq[@optional{@nonterm{sign}} @nunterm{inexact-normal}]
@@ -333,7 +333,7 @@ letter stands for both itself and its uppercase form.
                                     @BNF-seq[@nunterm{digits#} @litchar{/} @nunterm{digits#}])
      (list @nunterm{inexact-special} @BNF-alt[@litchar{inf.0} @litchar{nan.0} @litchar{inf.f} @litchar{nan.f}])
      (list @nunterm{digits#} @BNF-seq[@kleeneplus{@nunterm{digit}} @kleenestar{@litchar{#}}])
-     (list @nunterm{inexact-complex} @BNF-seq[@optional{@nunterm{inexact-real}} @nonterm{sign} @nunterm{inexact-unsigned} @litchar{i}]
+     (list @nunterm{inexact-complex} @BNF-seq[@optional{@nunterm{inexact-real}} @nonterm{sign} @optional{@nunterm{inexact-unsigned}} @litchar{i}]
                                      @BNF-seq[@nunterm{inexact-real} @litchar["@"] @nunterm{inexact-real}])
 
 
@@ -746,6 +746,10 @@ it must appear between the elements of each pair in the list and
 nowhere in the sequence of list elements. The first element of each
 pair is used as the key for a table entry, and the second element of
 each pair is the associated value.
+
+A @as-index{@litchar{#hashalw}} starts a hash table like
+@litchar{#hash}, except that it constructs a hash table based on
+@racket[equal-always?] instead of @racket[equal?].
 
 A @as-index{@litchar{#hasheq}} starts a hash table like
 @litchar{#hash}, except that it constructs a hash table based on

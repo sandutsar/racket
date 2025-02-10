@@ -2,6 +2,8 @@ name: Scribble Racket Build Guide
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "build.md"
       - ".github/workflows/scribble_build-guide.yml"
@@ -14,11 +16,11 @@ on:
 
 jobs:
   scribble:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: Bogdanp/setup-racket@v1.5
+    - uses: actions/checkout@v4
+    - uses: Bogdanp/setup-racket@v1.11
       with:
         architecture: 'x64'
         distribution: 'full'
@@ -28,11 +30,11 @@ jobs:
       run: raco pkg install --auto -j $(nproc) pkgs/racket-build-guide
 
   generation-check:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: Bogdanp/setup-racket@v1.5
+    - uses: actions/checkout@v4
+    - uses: Bogdanp/setup-racket@v1.11
       with:
         architecture: 'x64'
         distribution: 'full'

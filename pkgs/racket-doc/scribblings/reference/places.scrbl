@@ -89,7 +89,7 @@ message to each, and then waits for the places to terminate:
          [p pls])
       (place-channel-put p i)
       (printf "~a\n" (place-channel-get p)))
-   (map place-wait pls))
+   (for-each place-wait pls))
 ]
 
 The @filepath{place-worker.rkt} module (in a file that
@@ -369,8 +369,8 @@ messages:
 
  @item{@tech{file-stream ports} and @tech{TCP ports}, where the
        underlying representation (such as a file descriptor, socket,
-       or handle) is duplicated and attached to a fresh port in the
-       receiving place;}
+       or handle) is duplicated in the sending place and attached to
+       a fresh port in the receiving place;}
 
  @item{@tech[#:doc '(lib "scribblings/foreign/foreign.scrbl")]{C
        pointers} as created or accessed via @racketmodname[ffi/unsafe]; and}

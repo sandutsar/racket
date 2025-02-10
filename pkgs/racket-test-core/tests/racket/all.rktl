@@ -15,6 +15,7 @@
 (load-in-sandbox "flonum.rktl")
 (load-in-sandbox "extflonum.rktl")
 (load-in-sandbox "string.rktl")
+(load-in-sandbox "treelist.rktl")
 (load-in-sandbox "fasl.rktl")
 
 (load-in-sandbox "async-channel.rktl")
@@ -38,6 +39,8 @@
 (load-in-sandbox "bytes.rktl")
 (load-in-sandbox "trace.rktl")
 (load-in-sandbox "trait.rktl")
+(load-in-sandbox "promise.rktl")
+(load-in-sandbox "future.rktl")
 
 (load-in-sandbox "moddep.rktl")
 (load-in-sandbox "boundmap-test.rktl")

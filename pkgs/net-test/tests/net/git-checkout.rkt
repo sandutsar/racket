@@ -59,13 +59,13 @@
    [else
     (error 'compare "no such file: ~s" a)]))
 
-(when git-exe
+(when (and git-exe (not (getenv "GITHUB_ACTIONS")))
   (for ([link-mode '(rel up abs)])
     (define dir (make-temporary-file "~a-git-test" 'directory))
     (define http-custodian (make-custodian))
     (dynamic-wind
      void
-     (lambda () 
+     (lambda ()
        (parameterize ([current-custodian http-custodian])
          (thread
           (lambda ()
@@ -75,7 +75,7 @@
              #:extra-files-paths (list dir)
              #:servlet-regexp #rx"$." ; no servlets
              #:port 8950))))
-       
+
        (parameterize ([current-directory dir]
                       [current-environment-variables
                        (environment-variables-copy (current-environment-variables))])
@@ -99,11 +99,11 @@
                 (make-file-or-directory-link "../x" "abs-x")]
                [else
                 (make-file-or-directory-link "x" "also-x")]))
-           (git "init")
+           (git "init" "-b" "main")
            (git "add" ".")
            (git "commit" "-m" "initial commit")
            (git "update-server-info"))
-         
+
          (git-checkout "localhost" #:port 8950 #:transport 'http
                        "repo/.git"
                        #:dest-dir "also-repo")
@@ -125,10 +125,8 @@
              [(abs up) (unless (eq? 'windows (system-type))
                          (error "should not have worked"))])
            (compare "repo" "safe-repo"))
-         
+
          (void)))
      (lambda ()
        (custodian-shutdown-all http-custodian)
        (delete-directory/files dir)))))
-
-

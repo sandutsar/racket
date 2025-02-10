@@ -73,11 +73,11 @@ in @racketmodname[zuo/kernel] (and the values originate there):
   pair? null? list? cons car cdr list append reverse length
   list-ref list-set
 
-  integer? + - * quotient modulo < <= = >= >
+  integer? + - * quotient remainder < <= = >= >
   bitwise-and bitwise-ior bitwise-xor bitwise-not
 
   string? string-length string-ref string-u32-ref substring string
-  string=? string-ci=? string-sha1 string-split
+  string=? string-ci=? string-sha256 string-split
 
   symbol? symbol->string string->symbol string->uninterned-symbol
   
@@ -109,3 +109,5 @@ in @racketmodname[zuo/kernel] (and the values originate there):
   suspend-signal resume-signal
 
 ]
+
+@history[#:changed "1.9" @elem{Removed @racket[modulo] and added @racket[remainder].}]

@@ -9,6 +9,7 @@
          racket/list
          racket/symbol
          racket/keyword
+         racket/mutability
          (prefix-in k: '#%kernel))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -117,6 +118,19 @@
 (test #t equal? 2 2)
 (test #t equal? (make-vector 5 'a) (make-vector 5 'a))
 (test #t equal? (box "a") (box "a"))
+(test #t equal? (make-flvector 5 0.0) (make-flvector 5 0.0))
+(test #t equal? (make-fxvector 5 0) (make-fxvector 5 0))
+(test #t equal? (stencil-vector #b10010 'a 'b) (stencil-vector #b10010 'a 'b))
+(test #t eq?
+      (equal-hash-code (make-flvector 5 0.0))
+      (equal-hash-code (make-flvector 5 0.0)))
+(test #t eq?
+      (equal-hash-code (make-fxvector 5 0))
+      (equal-hash-code (make-fxvector 5 0)))
+(test #t eq?
+      (equal-hash-code (stencil-vector #b10010 'a 'b))
+      (equal-hash-code (stencil-vector #b10010 'a 'b)))
+
 (test #f equal? "" (string #\null))
 
 (test #f equal? 'a "a")
@@ -136,9 +150,50 @@
 (test #t equal? (integer->char 1024) (integer->char 1024))
 (test #f equal? (integer->char 1024) (integer->char 1025))
 
+(test #t equal-always? 'a 'a)
+(test #t equal-always? '("a") '("a"))
+(test #t equal-always? '(a) '(a))
+(test #t equal-always? '(a (b) c) '(a (b) c))
+(test #t equal-always? '("a" ("b") "c") '("a" ("b") "c"))
+(test #t equal-always? "abc" "abc")
+(test #t equal-always? 2 2)
+; immutable versions of these are equal-always
+(test #t equal-always? (vector-immutable 5 'a) (vector-immutable 5 'a))
+(test #t equal-always? (box-immutable "a") (box-immutable "a"))
+(test #t equal-always? (hash 'a 1) (hash 'a 1))
+(test #t equal-always? (cons 'a '()) (cons 'a '()))
+(test #t equal-always? (string->immutable-string (string #\a)) (string->immutable-string (string #\a)))
+(test #f equal-always? "" (string #\null))
+
+; but mutable versions are not equal-always
+(test #f equal-always? (make-vector 5 'a) (make-vector 5 'a))
+(test #f equal-always? (box "a") (box "a"))
+(test #f equal-always? (make-hash '((a . 1))) (make-hash '((a . 1))))
+(test #f equal-always? (mcons 'a '()) (mcons 'a '()))
+(test #f equal-always? (string #\a) (string #\a))
+(test #f equal-always? (make-flvector 5 0.0) (make-flvector 5 0.0))
+(test #f equal-always? (make-fxvector 5 0) (make-fxvector 5 0))
+(test #f equal-always? (stencil-vector #b10010 'a 'b) (stencil-vector #b10010 'a 'b))
+(test #f eq?
+      (equal-always-hash-code (make-flvector 5 0.0))
+      (equal-always-hash-code (make-flvector 5 0.0)))
+(test #f eq?
+      (equal-always-hash-code (make-fxvector 5 0))
+      (equal-always-hash-code (make-fxvector 5 0)))
+(test #f eq?
+      (equal-always-hash-code (stencil-vector #b10010 'a 'b))
+      (equal-always-hash-code (stencil-vector #b10010 'a 'b)))
+
+(let ()
+  (struct s (x) #:property prop:procedure 0)
+  (test #t equal-always?/recur '(1 . 2) '(1 . 2) (s (lambda (x y) #t)))
+  (test #t equal-always?/recur '#(0) '#(0) (s (lambda (x y) #t)))
+  (test #t equal-always?/recur '#&0 '#&0 (s (lambda (x y) #t))))
+
 (arity-test eq? 2 2)
 (arity-test eqv? 2 2)
 (arity-test equal? 2 2)
+(arity-test equal-always? 2 2)
 
 (err/rt-test (set-mcdr! (list 1 2) 4))
 
@@ -293,13 +348,13 @@
 (test 'c list-ref '(a b c d) 2)
 (test 'c list-ref '(a b c . d) 2)
 (arity-test list-ref 2 2)
-(err/rt-test (list-ref 1 1) exn:application:mismatch?)
+(err/rt-test (list-ref 1 1) exn:application:mismatch? #rx"contract violation.*pair[?]")
 (err/rt-test (list-ref '(a b . c) 2) exn:application:mismatch? #rx"index reaches a non-pair")
-(err/rt-test (list-ref '(1 2 3) 2.0))
-(err/rt-test (list-ref '(1) '(1)))
+(err/rt-test (list-ref '(1 2 3) 2.0) exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
+(err/rt-test (list-ref '(1) '(1)) exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
 (err/rt-test (list-ref '(1) 1) exn:application:mismatch? #rx"index too large for list")
-(err/rt-test (list-ref '() 0) exn:application:mismatch?)
-(err/rt-test (list-ref '(1) -1))
+(err/rt-test (list-ref '() 0) exn:application:mismatch? #rx"contract violation.*pair[?]")
+(err/rt-test (list-ref '(1) -1) exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
 (err/rt-test (list-ref '(1) 2000000000000) exn:application:mismatch?)
 
 (test '(c d) list-tail '(a b c d) 2)
@@ -307,10 +362,11 @@
 (test '(b c . d) list-tail '(a b c . d) 1)
 (test 1 list-tail 1 0)
 (arity-test list-tail 2 2)
-(err/rt-test (list-tail 1 1) exn:application:mismatch?)
-(err/rt-test (list-tail '(1 2 3) 2.0))
-(err/rt-test (list-tail '(1) '(1)))
-(err/rt-test (list-tail '(1) -1))
+(err/rt-test (list-tail 1 1) exn:application:mismatch? #rx"index reaches a non-pair")
+(err/rt-test (list-tail null 1) exn:application:mismatch? #rx"index too large for list")
+(err/rt-test (list-tail '(1 2 3) 2.0) exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
+(err/rt-test (list-tail '(1) '(1)) exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
+(err/rt-test (list-tail '(1) -1)exn:fail:contract? #rx"contract violation.*exact-nonnegative-integer[?]")
 (err/rt-test (list-tail '(1) 2) exn:application:mismatch? #rx"index too large for list")
 (err/rt-test (list-tail '(1 2 . 3) 3) exn:application:mismatch? #rx"index reaches a non-pair")
 
@@ -335,6 +391,7 @@
 
 (test-mem memq 'memq)
 (test-mem memv 'memv)
+(test-mem memw 'memw)
 (test-mem member 'member)
 
 (test '("apple") memq "apple" '("apple")) ; literals are interned
@@ -342,12 +399,16 @@
 (test #f memq (list->string (string->list "apple")) '("apple"))
 (test #f memq (list->bytes (bytes->list #"apple")) '(#"apple"))
 (test #f memv (list->string (string->list "apple")) '("apple"))
+(test #f memw (list->string (string->list "apple")) '("apple"))
+(test '("apple") memw (string->immutable-string (list->string (string->list "apple"))) '("apple"))
 (test '("apple") member "apple" '("apple"))
 
 ; (test #f memq 1/2 '(1/2)) ; rationals are immutable and we may want to optimize
 (test '(1/2) memv 1/2 '(1/2))
+(test '(1/2) memw 1/2 '(1/2))
 (test '(1/2) member 1/2 '(1/2))
 
+(test '((1 2)) memw '(1 2) '(1 2 (1 2)))
 (test '((1 2)) member '(1 2) '(1 2 (1 2)))
 
 ;; Additional tests for member with equality check argument
@@ -359,6 +420,36 @@
 (test #f member 2 '(3 4 5 6) =)
 (test '(#"b" #"c") member #"b" '(#"a" #"b" #"c") bytes=?)
 (test #f member #"z" '(#"a" #"b" #"c") bytes=?)
+
+(let ([b1 (box 5)]
+      [b2 (box 5)])
+  (test (list b2 2)
+        memw
+        b2
+        (list 0 b1 1 b2 2))
+  (test (list (list b2) 2)
+        memw
+        (list b2)
+        (list 0 (list b1) 1 (list b2) 2)))
+
+(let ([b1 (box 5)]
+      [b2 (box 5)])
+  (test (list 0 b1 1 2)
+        remw
+        b2
+        (list 0 b1 1 b2 2))
+  (test (list 0 (list b1) 1 2)
+        remw
+        (list b2)
+        (list 0 (list b1) 1 (list b2) 2))
+  (test (list 0 b1 1 2 3)
+        remw*
+        (list b2)
+        (list 0 b1 1 b2 2 b2 3))
+  (test (list 0 (list b1) 1 2 3)
+        remw*
+        (list (list b2))
+        (list 0 (list b1) 1 (list b2) 2 (list b2) 3)))
 
 (define (test-ass assq assq-name)
   (define e '((a 1) (b 2) (c 3)))
@@ -375,15 +466,30 @@
 
 (test-ass assq 'assq)
 (test-ass assv 'assv)
+(test-ass assw 'assw)
 (test-ass assoc 'assoc)
 
 (test #f assq '(a) '(((a)) ((b)) ((c))))
 (test #f assv '(a) '(((a)) ((b)) ((c))))
+(test '((b) 1) assw '(b) '(((a)) ((b) 1) ((c))))
 (test '((b) 1) assoc '(b) '(((a)) ((b) 1) ((c))))
 
 ; (test #f assq '1/2 '(((a)) (1/2) ((c)))) ; rationals are immutable and we may want to optimize
 (test '(1/2) assv '1/2 '(((a)) (1/2) ((c))))
+(test '(1/2) assw '1/2 '(((a)) (1/2) ((c))))
 (test '(1/2) assoc '1/2 '(((a)) (1/2) ((c))))
+
+(test '(3 4) assw 3 '((1 2) (3 4) (5 6)))
+(let ([b1 (box 0)]
+      [b2 (box 0)])
+  (test (cons b2 2)
+        assw
+        b2
+        (list (cons b1 1) (cons b2 2)))
+  (test (cons (list b2) 2)
+        assw
+        (list b2)
+        (list (cons (list b1) 1) (cons (list b2) 2))))
 
 (arity-test placeholder-set! 2 2)
 (err/rt-test (placeholder-set! #f #f))
@@ -410,36 +516,55 @@
 (test #t immutable? (make-immutable-hasheq null))
 (test #t immutable? (make-immutable-hasheq '((a . b))))
 (test #t immutable? (make-immutable-hash '((a . b))))
+(test #t immutable? (make-immutable-hashalw '((a . b))))
 (test #f immutable? (make-hasheq))
 (test #f immutable? (make-hasheqv))
 (test #f immutable? (make-hash))
+(test #f immutable? (make-hashalw))
 (test #f immutable? (make-weak-hasheq))
 (test #f immutable? (make-weak-hash))
+(test #f immutable? (make-weak-hashalw))
 (test #f immutable? (make-ephemeron-hasheq))
 (test #f immutable? (make-ephemeron-hash))
+(test #f immutable? (make-ephemeron-hashalw))
 
 (test #t eq? (hash) #hash())
 (test #t eq? (hasheq) #hasheq())
 (test #t eq? (hasheqv) #hasheqv())
+(test #t eq? (hashalw) #hashalw())
 (test #t eq? (make-immutable-hash) #hash())
 (test #t eq? (make-immutable-hasheq) #hasheq())
 (test #t eq? (make-immutable-hasheqv) #hasheqv())
+(test #t eq? (make-immutable-hashalw) #hashalw())
 (test #t eq? (hash) (hash-remove (hash 3 4) 3))
 (test #t eq? (hasheq) (hash-remove (hasheq 3 4) 3))
 (test #t eq? (hasheqv) (hash-remove (hasheqv 3 4) 3))
+(test #t eq? (hashalw) (hash-remove (hashalw 3 4) 3))
+(let ([ht (hash 3 4)])
+  (test #t eq? ht (hash-remove ht 5)))
+(let ([ht (hasheq 3 4)])
+  (test #t eq? ht (hash-remove ht 5)))
+(let ([ht (hasheqv 3 4)])
+  (test #t eq? ht (hash-remove ht 5)))
+(let ([ht (hashalw 3 4)])
+  (test #t eq? ht (hash-remove ht 5)))
 
 (err/rt-test (hash 1))
 (err/rt-test (hasheqv 1))
 (err/rt-test (hasheq 1))
+(err/rt-test (hashalw 1))
 (err/rt-test (make-hash 1))
 (err/rt-test (make-hasheqv 1))
 (err/rt-test (make-hasheq 1))
+(err/rt-test (make-hashalw 1))
 (err/rt-test (make-weak-hash 1))
 (err/rt-test (make-weak-hasheqv 1))
 (err/rt-test (make-weak-hasheq 1))
+(err/rt-test (make-weak-hashalw 1))
 (err/rt-test (make-ephemeron-hash 1))
 (err/rt-test (make-ephemeron-hasheqv 1))
 (err/rt-test (make-ephemeron-hasheq 1))
+(err/rt-test (make-ephemeron-hashalw 1))
 
 (test #t symbol? 'foo)
 (test #t symbol? (car '(a b)))
@@ -769,14 +894,19 @@
 (test #\a integer->char (char->integer #\a))
 (test #\371 integer->char (char->integer #\371))
 (test #\U12345 integer->char (char->integer #\U12345))
+(test #\0 integer->char (char->integer #\0))
+(test #\U10FFFF integer->char (char->integer #\U10FFFF))
 (arity-test integer->char 1 1)
 (arity-test char->integer 1 1)
-(err/rt-test (integer->char 5.0))
-(err/rt-test (integer->char 'a))
-(err/rt-test (integer->char -1))
-(err/rt-test (integer->char (expt 2 32)))
-(err/rt-test (integer->char 10000000000000000))
-(err/rt-test (char->integer 5))
+(let ([rx #rx"[(]and/c [(]integer-in 0 #x10FFFF[)] [(]not/c [(]integer-in #xD800 #xDFFF[)][)][)]"])
+  (err/rt-test (integer->char 5.0) exn:fail:contract? rx)
+  (err/rt-test (integer->char 'a) exn:fail:contract? rx)
+  (err/rt-test (integer->char -1) exn:fail:contract? rx)
+  (err/rt-test (integer->char (expt 2 32) exn:fail:contract? rx))
+  (err/rt-test (integer->char 10000000000000000) exn:fail:contract? rx)
+  (err/rt-test (integer->char #xD800) exn:fail:contract? rx)
+  (err/rt-test (integer->char #xDFFF) exn:fail:contract? rx))
+(err/rt-test (char->integer 5) exn:fail:contract? #rx"char[?]")
 
 (define (test-up/down case case-name members memassoc)
   (let loop ([n 0])
@@ -792,26 +922,37 @@
 (test-up/down char-upcase 'char-upcase lowers (map cons lowers uppers))
 (test-up/down char-downcase 'char-downcase uppers (map cons uppers lowers))
 
+(define 64-bit-machine? (eq? (expt 2 40) (eq-hash-code (expt 2 40))))
+
 (test #t string? "The word \"recursion\\\" has many meanings.")
 (test #t string? "")
 (arity-test string? 1 1)
 (test 3 'make-string (string-length (make-string 3)))
 (test "" make-string 0)
 (arity-test make-string 1 2)
-(err/rt-test (make-string "hello"))
-(err/rt-test (make-string 5 "hello"))
-(err/rt-test (make-string 5.0 #\b))
-(err/rt-test (make-string 5.2 #\a))
-(err/rt-test (make-string -5 #\f))
-(define 64-bit-machine? (eq? (expt 2 40) (eq-hash-code (expt 2 40))))
+(err/rt-test (make-string "hello") exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-string 5 "hello") exn:fail:contract? "char[?]")
+(err/rt-test (make-string 5.0 #\b) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-string 5.2 #\a) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-string -5 #\f) exn:fail:contract? "exact-nonnegative-integer[?]")
 (unless 64-bit-machine?
   (err/rt-test (make-string 500000000000000 #\f) exn:fail:out-of-memory?)) ;; bignum on 32-bit machines
 (err/rt-test (make-string 50000000000000000000 #\f) exn:fail:out-of-memory?)  ;; bignum on 64-bit machines
 
+(test #t vector? (make-vector 0))
+(test #(0 0 0 0 0) make-vector 5)
+(test #(0 0 0 0 0) make-vector 5 0)
+(err/rt-test (make-vector "oops") exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-vector 5.0 0) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-vector 5.2 0) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-vector -5 0) exn:fail:contract? "exact-nonnegative-integer[?]")
 (unless 64-bit-machine?
   (err/rt-test (make-vector 1234567890 #\f) exn:fail:out-of-memory?)
+  (err/rt-test (make-vector 500000000000000 0) exn:fail:out-of-memory?))
+(err/rt-test (make-vector 50000000000000000000 0) exn:fail:out-of-memory?)
+
+(unless 64-bit-machine?
   (err/rt-test (read (open-input-string "#1234567890(0)")) exn:fail:out-of-memory?))
-(test #t vector? (make-vector 0))
 
 (let ([b (vector 1 2 3)])
   (vector-copy! b 0 b 1)
@@ -911,6 +1052,34 @@
 (err/rt-test (string-fill! 'sym #\1))
 (err/rt-test (string-fill! "static" #\1))
 (err/rt-test (string-fill! (string-copy "oops") 5))
+
+(let ([f (lambda (l) (apply string-append l))])
+  (test "abcdef" f '("a" "bc" "def"))
+  (test #f immutable? (f '("a" "bc" "def")))
+  (test "" f null)
+  (test #f immutable? (f '()))
+  (err/rt-test (f 1) exn:fail:contract? #rx"^apply:")
+  (err/rt-test (f '(1)) exn:fail:contract? #rx"^string-append:"))
+
+(let ([f (lambda (a b l) (apply string-append a b l))])
+  (test "012abcdef" f "0" "12" '("a" "bc" "def"))
+  (test #f immutable? (f "0" "12" '("a" "bc" "def")))
+  (err/rt-test (f 1 "2" '()) exn:fail:contract? #rx"^string-append:")
+  (err/rt-test (f "1" "2" 1) exn:fail:contract? #rx"^apply:"))
+
+(let ([f (lambda (l) (apply string-append-immutable l))])
+  (test "abcdef" f '("a" "bc" "def"))
+  (test #t immutable? (f '("a" "bc" "def")))
+  (test "" f null)
+  (test #t immutable? (f '()))
+  (err/rt-test (f 1) exn:fail:contract? #rx"^apply:")
+  (err/rt-test (f '(1)) exn:fail:contract? #rx"^string-append-immutable:"))
+
+(let ([f (lambda (a b l) (apply string-append-immutable a b l))])
+  (test "012abcdef" f "0" "12" '("a" "bc" "def"))
+  (test #t immutable? (f "0" "12" '("a" "bc" "def")))
+  (err/rt-test (f 1 "2" '()) exn:fail:contract? #rx"^string-append-immutable:")
+  (err/rt-test (f "1" "2" 1) exn:fail:contract? #rx"^apply:"))
 
 (let ([s (make-string 10 #\x)])
   (test (void) string-copy! s 0 "hello")
@@ -1138,12 +1307,12 @@
 (test 3 'make-bytes (bytes-length (make-bytes 3)))
 (test #"" make-bytes 0)
 (arity-test make-bytes 1 2)
-(err/rt-test (make-bytes #"hello"))
-(err/rt-test (make-bytes 5 #"hello"))
-(err/rt-test (make-bytes 5.0 98))
-(err/rt-test (make-bytes 5.2 97))
-(err/rt-test (make-bytes -5 98))
-(err/rt-test (make-bytes 50000000000000000000 #\f))
+(err/rt-test (make-bytes #"hello") exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-bytes 5 #"hello") exn:fail:contract? "byte[?]")
+(err/rt-test (make-bytes 5.0 98) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-bytes 5.2 97) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-bytes -5 98) exn:fail:contract? "exact-nonnegative-integer[?]")
+(err/rt-test (make-bytes 50000000000000000000 #\f) exn:fail:contract? "byte?")
 (unless 64-bit-machine?
   (err/rt-test (make-bytes 500000000000000 45) exn:fail:out-of-memory?)) ;; bignum on 32-bit machines
 (err/rt-test (make-bytes 50000000000000000000 45) exn:fail:out-of-memory?)  ;; bignum on 64-bit machines
@@ -1152,15 +1321,15 @@
 (define f (make-bytes 3 (char->integer #\*)))
 (test #"?**" 'bytes-set! (begin (bytes-set! f 0 (char->integer #\?)) f))
 (arity-test bytes-set! 3 3)
-(err/rt-test (bytes-set! #"hello" 0 #\a)) ; immutable bytes constant
+(err/rt-test (bytes-set! #"hello" 0 #\a) exn:fail:contract? #rx"[(]and/c bytes[?] [(]not/c immutable[?][)][)]") ; immutable bytes constant
 (define hello-bytes (bytes-copy #"hello"))
-(err/rt-test (bytes-set! hello-bytes 'a 97))
-(err/rt-test (bytes-set! 'hello 4 97))
-(err/rt-test (bytes-set! hello-bytes 4 'a))
-(err/rt-test (bytes-set! hello-bytes 4.0 'a))
-(err/rt-test (bytes-set! hello-bytes 5 97) exn:application:mismatch?)
-(err/rt-test (bytes-set! hello-bytes -1 97))
-(err/rt-test (bytes-set! hello-bytes (expt 2 100) 97) exn:application:mismatch?)
+(err/rt-test (bytes-set! hello-bytes 'a 97) exn:fail:contract? #rx"exact-nonnegative-integer[?]")
+(err/rt-test (bytes-set! 'hello 4 97) exn:fail:contract? #rx"[(]and/c bytes[?] [(]not/c immutable[?][)][)]")
+(err/rt-test (bytes-set! hello-bytes 4 'a) exn:fail:contract? #rx"byte[?]")
+(err/rt-test (bytes-set! hello-bytes 4.0 'a) exn:fail:contract? #rx"exact-nonnegative-integer[?]")
+(err/rt-test (bytes-set! hello-bytes 5 97) exn:fail:contract? #rx"[[]0, 4[]]")
+(err/rt-test (bytes-set! hello-bytes -1 97) exn:fail:contract? #rx"exact-nonnegative-integer[?]")
+(err/rt-test (bytes-set! hello-bytes (expt 2 100) 97) exn:fail:contract? #rx"[[]0, 4[]]")
 (err/rt-test (bytes-set! (bytes 4 5 6) 4 0) exn:fail:contract? #rx"[[]0, 2[]]")
 (test #"abc" bytes 97 98 99)
 (test #"" bytes)
@@ -1258,6 +1427,20 @@
 (err/rt-test (bytes=? #"a" #"a" 1))
 (err/rt-test (bytes=? #"a" #"b" 1))
 
+(let ([f (lambda (l) (apply bytes-append l))])
+  (test #"abcdef" f '(#"a" #"bc" #"def"))
+  (test #f immutable? (f '(#"a" #"bc" #"def")))
+  (test #"" f null)
+  (test #f immutable? (f '()))
+  (err/rt-test (f 1) exn:fail:contract? #rx"^apply:")
+  (err/rt-test (f '(1)) exn:fail:contract? #rx"^bytes-append:"))
+
+(let ([f (lambda (a b l) (apply bytes-append a b l))])
+  (test #"012abcdef" f #"0" #"12" '(#"a" #"bc" #"def"))
+  (test #f immutable? (f #"0" #"12" '(#"a" #"bc" #"def")))
+  (err/rt-test (f 1 #"2" '()) exn:fail:contract? #rx"^bytes-append:")
+  (err/rt-test (f #"1" #"2" 1) exn:fail:contract? #rx"^apply:"))
+
 (test #f bytes<? #"a" #"a" #"a")
 (test #f bytes<? #"a" #"a")
 (test #t bytes<? #"a")
@@ -1322,6 +1505,18 @@
 
 (test "ap0p0le" regexp-replace* #rx"p" "apple" "\\0\\$0")
 
+(test "allle" regexp-replace* #rx"p" "apple" "l" 1)
+(test "allle" regexp-replace* #rx"p" "apple" "l" 1 3)
+(test "allle" regexp-replace* #rx"p" "apple" "l" 1 3 #"a")
+
+(test #"allle" regexp-replace* #rx#"p" "apple" #"l" 1)
+(test #"allle" regexp-replace* #rx#"p" "apple" #"l" 1 3)
+(test #"allle" regexp-replace* #rx#"p" "apple" #"l" 1 3 #"a")
+
+(test #"allle" regexp-replace* #rx#"p" #"apple" #"l" 1)
+(test #"allle" regexp-replace* #rx#"p" #"apple" #"l" 1 3)
+(test #"allle" regexp-replace* #rx#"p" #"apple" #"l" 1 3 #"a")
+
 ;; Test sub-matches with procedure replace (second example by synx)
 (test "myCERVEZA myMI Mi"
       regexp-replace* "([Mm])i ([a-zA-Z]*)" "mi cerveza Mi Mi Mi"
@@ -1344,6 +1539,16 @@
 (test "HELLO world" regexp-replace* #px"\\w" "hello world" string-upcase 0 5)
 (test "hello world" regexp-replace* #px"o" "ohello world" "" 0 3)
 (test "hell world" regexp-replace* #px"o" "ohello world" "" 0 6)
+
+(let ([rx #rx"regexp-replace: contract violation.+expected:.+or/c regexp\\? byte-regexp\\? string\\? bytes\\?"])
+  (err/rt-test (regexp-replace 'not-regexp "string" "rep") exn:fail:contract? rx)
+  (err/rt-test (regexp-replace 'not-regexp "string" "rep" #"ipre") exn:fail:contract? rx))
+
+(let ([rx #rx"regexp-replace\\*: contract violation.+expected:.+or/c regexp\\? byte-regexp\\? string\\? bytes\\?"])
+  (err/rt-test (regexp-replace* 'not-regexp "string" "rep") exn:fail:contract? rx)
+  (err/rt-test (regexp-replace* 'not-regexp "string" "rep" 1) exn:fail:contract? rx)
+  (err/rt-test (regexp-replace* 'not-regexp "string" "rep" 1 2) exn:fail:contract? rx)
+  (err/rt-test (regexp-replace* 'not-regexp "string" "rep" 1 2 #"ipre") exn:fail:contract? rx))
 
 ;; Test weird port offsets:
 (define (test-weird-offset regexp-match regexp-match-positions)
@@ -1565,6 +1770,59 @@
 (arity-test regexp-match-peek-positions 2 6)
 (arity-test regexp-replace 3 4)
 (arity-test regexp-replace* 3 6)
+
+(err/rt-test (regexp-match 'oops "input")
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected:.+or/c.+regexp[?].+byte-regexp[?].+string[?].+bytes[?]")
+(err/rt-test (regexp-match #rx"pattern" 'oops)
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected:.+or/c.+string[?].+bytes[?].+path[?].+input-port[?]")
+(err/rt-test (regexp-match #rx"pattern" "input" "oops")
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected: exact-nonnegative-integer[?]")
+(err/rt-test (regexp-match #rx"pattern" "input" 0 "oops")
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected:.+or/c.+exact-nonnegative-integer[?].+#f")
+(err/rt-test (regexp-match #rx"pattern" "input" 0 #f "oops")
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected:.+or/c.+output-port[?].+#f")
+(err/rt-test (regexp-match #rx"pattern" "input" 0 #f #f "oops")
+             exn:fail:contract?
+             #rx"regexp-match: contract violation.*expected: bytes[?]")
+
+(err/rt-test (regexp-match-peek 'oops (open-input-string "input"))
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected:.+or/c.+regexp[?].+byte-regexp[?].+string[?].+bytes[?]")
+(err/rt-test (regexp-match-peek #rx"pattern" 'oops)
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected: input-port[?]")
+(err/rt-test (regexp-match-peek #rx"pattern" "oops")
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected: input-port[?]")
+(err/rt-test (regexp-match-peek #rx"pattern" (open-input-string "input") "oops")
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected: exact-nonnegative-integer[?]")
+(err/rt-test (regexp-match-peek #rx"pattern" (open-input-string "input") 0 "oops")
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected:.+or/c.+exact-nonnegative-integer[?].+#f")
+(err/rt-test (regexp-match-peek #rx"pattern" (open-input-string "input") 0 #f "oops")
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected:.+or/c.+progress-evt[?].+#f")
+(err/rt-test (regexp-match-peek #rx"pattern" (open-input-string "input") 0 #f #f "oops")
+             exn:fail:contract?
+             #rx"regexp-match-peek: contract violation.*expected: bytes[?]")
+
+(test 3 regexp-max-lookbehind #rx#"(?<=abc)d")
+(test 2 regexp-max-lookbehind #rx#"e(?<=a..)d")
+(test 2 regexp-max-lookbehind #rx#"(?:a|ab)(?<!a..)d")
+(test 1 regexp-max-lookbehind #rx"^")
+(test 1 regexp-max-lookbehind #px"\\b")
+(test 0 regexp-max-lookbehind #rx"$")
+(test 0 regexp-max-lookbehind #rx".")
+(let ([rx #rx"regexp-max-lookbehind: contract violation.*expected:.+or/c.+regexp[?].+byte-regexp[?]"])
+  (err/rt-test (regexp-max-lookbehind "string") exn:fail:contract? rx)
+  (err/rt-test (regexp-max-lookbehind #"bytes") exn:fail:contract? rx)
+  (err/rt-test (regexp-max-lookbehind 'obviously-not-regexp) exn:fail:contract? rx))
 
 (test #t procedure? car)
 (test #f procedure? 'car)
@@ -2351,6 +2609,109 @@
 (err/rt-test (raise-arguments-error 'f "invalid" 'x 5) exn:fail:contract? #rx"raise-arguments-error:")
 (err/rt-test (raise-arguments-error 'f "invalid" "x" 5 "y") exn:fail:contract? #rx"raise-arguments-error:")
 
+(err/rt-test (raise-arguments-error* "f" 'mars "invalid") exn:fail:contract? #rx"raise-arguments-error\\*:")
+(err/rt-test (raise-arguments-error* 'f 'mars 'invalid) exn:fail:contract? #rx"raise-arguments-error\\*:")
+(err/rt-test (raise-arguments-error* 'f 'mars "invalid" "x") exn:fail:contract? #rx"raise-arguments-error\\*:")
+(err/rt-test (raise-arguments-error* 'f 'mars "invalid" 'x 5) exn:fail:contract? #rx"raise-arguments-error\\*:")
+(err/rt-test (raise-arguments-error* 'f 'mars "invalid" "x" 5 "y") exn:fail:contract? #rx"raise-arguments-error\\*:")
+
+
+(let ([vals (build-list 125 (lambda (_) #f))])
+  (err/rt-test (apply raise-argument-error 'f "something/c" 0 vals)
+               exn:fail:contract? #rx"argument position: 1st")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 1 vals)
+               exn:fail:contract? #rx"argument position: 2nd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 2 vals)
+               exn:fail:contract? #rx"argument position: 3rd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 4 vals)
+               exn:fail:contract? #rx"argument position: 5th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 10 vals)
+               exn:fail:contract? #rx"argument position: 11th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 11 vals)
+               exn:fail:contract? #rx"argument position: 12th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 12 vals)
+               exn:fail:contract? #rx"argument position: 13th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 14 vals)
+               exn:fail:contract? #rx"argument position: 15th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 20 vals)
+               exn:fail:contract? #rx"argument position: 21st")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 21 vals)
+               exn:fail:contract? #rx"argument position: 22nd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 22 vals)
+               exn:fail:contract? #rx"argument position: 23rd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 24 vals)
+               exn:fail:contract? #rx"argument position: 25th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 100 vals)
+               exn:fail:contract? #rx"argument position: 101st")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 101 vals)
+               exn:fail:contract? #rx"argument position: 102nd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 102 vals)
+               exn:fail:contract? #rx"argument position: 103rd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 104 vals)
+               exn:fail:contract? #rx"argument position: 105th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 110 vals)
+               exn:fail:contract? #rx"argument position: 111th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 111 vals)
+               exn:fail:contract? #rx"argument position: 112th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 112 vals)
+               exn:fail:contract? #rx"argument position: 113th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 114 vals)
+               exn:fail:contract? #rx"argument position: 115th")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 120 vals)
+               exn:fail:contract? #rx"argument position: 121st")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 121 vals)
+               exn:fail:contract? #rx"argument position: 122nd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 122 vals)
+               exn:fail:contract? #rx"argument position: 123rd")
+  (err/rt-test (apply raise-argument-error 'f "something/c" 124 vals)
+               exn:fail:contract? #rx"argument position: 125th")
+  )
+
+(parameterize ([error-value->string-handler
+                (lambda (v len)
+                  (if (string? v)
+                      v
+                      (format "~s" v)))])
+  (err/rt-test/once (raise-argument-error 'f "something" "one line")
+                    exn:fail:contract?
+                    #rx"given: one line")
+  (err/rt-test/once (raise-argument-error 'f "something" "two\n lines")
+                    exn:fail:contract?
+                    #rx"given: \n   two\n    lines")
+  (err/rt-test/once (raise-argument-error 'f "something" "\ntwo\n lines")
+                    exn:fail:contract?
+                    #rx"given: \ntwo\n lines")
+  (err/rt-test/once (raise-arguments-error
+                     'f
+                     "fail"
+                     "something" "two\n lines"
+                     "more" "three\nmore\nlines")
+                    exn:fail:contract?
+                    #rx"something: \n   two\n    lines.*more: \n   three\n   more\n   lines")
+  (err/rt-test/once (raise-arguments-error
+                     'f
+                     "fail"
+                     "something" "two\n lines"
+                     "more" (unquoted-printing-string "three\nmore\nlines"))
+                    exn:fail:contract?
+                    #rx"something: \n   two\n    lines.*more: \n   three\n   more\n   lines")
+  (err/rt-test/once (raise-argument-error
+                     'f
+                     "something"
+                     0
+                     "whatever"
+                     "two\n lines"
+                     "three\nmore\nlines")
+                    exn:fail:contract?
+                    #rx"other arguments[.][.][.]:\n   two\n    lines\n   three\n   more\n   lines")
+  (err/rt-test/once (+ 1 "two\n lines")
+                    exn:fail:contract?
+                    #rx"given: \n   two\n    lines")
+  (err/rt-test/once ("two\n lines" 1)
+                    exn:fail:contract?
+                    #rx"given: \n   two\n    lines")
+)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; continuations
 
@@ -2362,16 +2723,19 @@
 (arity-test make-hash 0 1)
 (arity-test make-hasheq 0 1)
 (arity-test make-hasheqv 0 1)
+(arity-test make-hashalw 0 1)
 (arity-test make-weak-hash 0 1)
 (arity-test make-weak-hasheq 0 1)
 (arity-test make-weak-hasheqv 0 1)
+(arity-test make-weak-hashalw 0 1)
 (arity-test make-ephemeron-hash 0 1)
 (arity-test make-ephemeron-hasheq 0 1)
 (arity-test make-ephemeron-hasheqv 0 1)
+(arity-test make-ephemeron-hashalw 0 1)
 
-(define (hash-tests make-hash make-hasheq make-hasheqv
-                    make-weak-hash make-weak-hasheq make-weak-hasheqv
-                    make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv
+(define (hash-tests make-hash make-hasheq make-hasheqv make-hashalw
+                    make-weak-hash make-weak-hasheq make-weak-hasheqv make-weak-hashalw
+                    make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv make-ephemeron-hashalw
                     hash-ref hash-set! hash-ref! hash-update! hash-has-key?
                     hash-remove! hash-count
                     hash-map hash-for-each
@@ -2389,6 +2753,7 @@
   (define an-ax (make-ax 1 2))
 
   (define (check-hash-tables weak-kind reorder?)
+    (struct wrap (f) #:property prop:procedure 0)
     (let ([h1 (case weak-kind
                 [(weak) (make-weak-hasheq)]
                 [(ephemeron) (make-ephemeron-hasheq)]
@@ -2398,6 +2763,8 @@
       (test #t eq? (eqv-hash-code l) (eqv-hash-code l))
       (test #t eq? (equal-hash-code l) (equal-hash-code l))
       (test #t eq? (equal-hash-code l) (equal-hash-code (list 1 2 3)))
+      (test #t eq? (equal-always-hash-code l) (equal-always-hash-code l))
+      (test #t eq? (equal-always-hash-code l) (equal-always-hash-code (list 1 2 3)))
       (hash-set! h1 l 'ok)
       (test 'ok hash-ref h1 l)
       (err/rt-test (hash-ref h1 'nonesuch (lambda (x) 'bad-proc)) exn:fail:contract:arity? "hash-ref")
@@ -2414,6 +2781,9 @@
       (hash-update! h1 l cdr)
       (test 'nope hash-ref h1 (list 1 2 3) (lambda () 'nope))
       (test '(((1 2 3) . ok)) hash-map h1 (lambda (k v) (cons k v)))
+      (test '(((1 2 3) . ok)) hash-map h1 (lambda (k v) (cons k v)) #t)
+      (test '(((1 2 3) . ok)) hash-map h1 (wrap (lambda (k v) (cons k v))))
+      (test '(((1 2 3) . ok)) hash-map h1 (wrap (lambda (k v) (cons k v))) #t)
       (hash-remove! h1 l)
       (test 'nope hash-ref h1 l (lambda () 'nope))
       (err/rt-test (hash-update! h1 l add1))
@@ -2538,6 +2908,9 @@
       (let ([c 0])
         (hash-for-each h1 (lambda (k v) (set! c (add1 c))))
         (test 15 'count c))
+      (hash-for-each h1 void #t)
+      (hash-for-each h1 (wrap void))
+      (hash-for-each h1 (wrap void) #t)
       ;; return the hash table:
       h1))
 
@@ -2611,9 +2984,9 @@
 
   (save)) ; prevents gcing of the ht-registered values
 
-(hash-tests make-hash make-hasheq make-hasheqv
-            make-weak-hash make-weak-hasheq make-weak-hasheqv
-            make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv
+(hash-tests make-hash make-hasheq make-hasheqv make-hashalw
+            make-weak-hash make-weak-hasheq make-weak-hasheqv make-weak-hashalw
+            make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv make-ephemeron-hashalw
             hash-ref hash-set! hash-ref! hash-update! hash-has-key?
             hash-remove! hash-count
             hash-map hash-for-each
@@ -2629,8 +3002,9 @@
   (hash-tests (lambda () (box #hash()))
               (lambda () (box #hasheq()))
               (lambda () (box #hasheqv()))
-              #f #f #f
-              #f #f #f
+              (lambda () (box #hashalw()))
+              #f #f #f #f
+              #f #f #f #f
               (ub-wrap hash-ref)
               (lambda (ht k v) (set-box! ht (hash-set (unbox ht) k v)))
               #f
@@ -2656,66 +3030,103 @@
 (test #f hash? 5)
 (test #t hash? (make-hasheq))
 (test #t hash? (make-hasheqv))
+(test #t hash? (make-hashalw))
 (test #t hash-eq? (hasheq))
 (test #f hash-eq? (hash))
 (test #f hash-eq? (hasheqv))
+(test #f hash-eq? (hashalw))
 (test #t hash-eq? (make-hasheq))
 (test #f hash-eq? (make-hash))
 (test #f hash-eq? (make-hasheqv))
+(test #f hash-eq? (make-hashalw))
 (test #t hash-eq? (make-weak-hasheq))
 (test #f hash-eq? (make-weak-hash))
 (test #f hash-eq? (make-weak-hasheqv))
+(test #f hash-eq? (make-weak-hashalw))
 (test #t hash-eq? (make-ephemeron-hasheq))
 (test #f hash-eq? (make-ephemeron-hash))
 (test #f hash-eq? (make-ephemeron-hasheqv))
+(test #f hash-eq? (make-ephemeron-hashalw))
 (test #f hash-eqv? (hasheq))
 (test #f hash-eqv? (hash))
 (test #t hash-eqv? (hasheqv))
-(test #f hash-eqv? (hasheq))
+(test #f hash-eqv? (hashalw))
+(test #f hash-eqv? (make-hasheq))
 (test #f hash-eqv? (make-hash))
 (test #t hash-eqv? (make-hasheqv))
+(test #f hash-eqv? (make-hashalw))
 (test #f hash-eqv? (make-weak-hasheq))
 (test #f hash-eqv? (make-weak-hash))
 (test #t hash-eqv? (make-weak-hasheqv))
+(test #f hash-eqv? (make-weak-hashalw))
 (test #f hash-eqv? (make-ephemeron-hasheq))
 (test #f hash-eqv? (make-ephemeron-hash))
 (test #t hash-eqv? (make-ephemeron-hasheqv))
+(test #f hash-eqv? (make-ephemeron-hashalw))
+(test #f hash-equal-always? (hasheq))
+(test #f hash-equal-always? (hash))
+(test #f hash-equal-always? (hasheqv))
+(test #t hash-equal-always? (hashalw))
+(test #f hash-equal-always? (make-hasheq))
+(test #f hash-equal-always? (make-hash))
+(test #f hash-equal-always? (make-hasheqv))
+(test #t hash-equal-always? (make-hashalw))
+(test #f hash-equal-always? (make-weak-hasheq))
+(test #f hash-equal-always? (make-weak-hash))
+(test #f hash-equal-always? (make-weak-hasheqv))
+(test #t hash-equal-always? (make-weak-hashalw))
+(test #f hash-equal-always? (make-ephemeron-hasheq))
+(test #f hash-equal-always? (make-ephemeron-hash))
+(test #f hash-equal-always? (make-ephemeron-hasheqv))
+(test #t hash-equal-always? (make-ephemeron-hashalw))
 (test #f hash-weak? (hasheq))
 (test #f hash-weak? (hash))
 (test #f hash-weak? (hasheqv))
+(test #f hash-weak? (hashalw))
 (test #f hash-weak? (make-hasheq))
 (test #f hash-weak? (make-hash))
 (test #f hash-weak? (make-hasheqv))
+(test #f hash-weak? (make-hashalw))
 (test #t hash-weak? (make-weak-hasheq))
 (test #t hash-weak? (make-weak-hash))
 (test #t hash-weak? (make-weak-hasheqv))
+(test #t hash-weak? (make-weak-hashalw))
 (test #f hash-weak? (make-ephemeron-hasheq))
 (test #f hash-weak? (make-ephemeron-hash))
 (test #f hash-weak? (make-ephemeron-hasheqv))
+(test #f hash-weak? (make-ephemeron-hashalw))
 (test #f hash-ephemeron? (hasheq))
 (test #f hash-ephemeron? (hash))
 (test #f hash-ephemeron? (hasheqv))
+(test #f hash-ephemeron? (hashalw))
 (test #f hash-ephemeron? (make-hasheq))
 (test #f hash-ephemeron? (make-hash))
 (test #f hash-ephemeron? (make-hasheqv))
+(test #f hash-ephemeron? (make-hashalw))
 (test #f hash-ephemeron? (make-weak-hasheq))
 (test #f hash-ephemeron? (make-weak-hash))
 (test #f hash-ephemeron? (make-weak-hasheqv))
+(test #f hash-ephemeron? (make-weak-hashalw))
 (test #t hash-ephemeron? (make-ephemeron-hasheq))
 (test #t hash-ephemeron? (make-ephemeron-hash))
 (test #t hash-ephemeron? (make-ephemeron-hasheqv))
+(test #t hash-ephemeron? (make-ephemeron-hashalw))
 (test #t hash-strong? (hasheq))
 (test #t hash-strong? (hash))
 (test #t hash-strong? (hasheqv))
+(test #t hash-strong? (hashalw))
 (test #t hash-strong? (make-hasheq))
 (test #t hash-strong? (make-hash))
 (test #t hash-strong? (make-hasheqv))
+(test #t hash-strong? (make-hashalw))
 (test #f hash-strong? (make-weak-hasheq))
 (test #f hash-strong? (make-weak-hash))
 (test #f hash-strong? (make-weak-hasheqv))
+(test #f hash-strong? (make-weak-hashalw))
 (test #f hash-strong? (make-ephemeron-hasheq))
 (test #f hash-strong? (make-ephemeron-hash))
 (test #f hash-strong? (make-ephemeron-hasheqv))
+(test #f hash-strong? (make-ephemeron-hashalw))
 
 (let ([ht (make-hasheqv)]
       [l (list #x03B1 #x03B2 #x03B3)]
@@ -2731,6 +3142,8 @@
 
 (err/rt-test (hash-eq? 5))
 (err/rt-test (hash-eqv? 5))
+(err/rt-test (hash-equal-always? 5))
+(err/rt-test (hash-equal? 5))
 (err/rt-test (hash-weak? 5))
 (err/rt-test (hash-ephemeron? 5))
 (err/rt-test (hash-strong? 5))
@@ -2738,7 +3151,8 @@
 (let ([a (expt 2 500)]
       [b (expt (read (open-input-string "2")) 500)])
   (test #t equal? (eqv-hash-code a) (eqv-hash-code b))
-  (test #t equal? (equal-hash-code a) (equal-hash-code b)))
+  (test #t equal? (equal-hash-code a) (equal-hash-code b))
+  (test #t equal? (equal-always-hash-code a) (equal-always-hash-code b)))
 
 ;; Check for proper clearing of weak hash tables
 ;; (internally, value should get cleared along with key):
@@ -2786,26 +3200,37 @@
   (test #t equal? (mk make-hash) (mk make-hash))
   (test #t equal? (mk make-hasheq) (mk make-hasheq))
   (test #t equal? (mk make-hasheqv) (mk make-hasheqv))
+  (test #t equal? (mk make-hashalw) (mk make-hashalw))
   (test #f equal? (mk make-hash) (mk make-hasheq))
   (test #f equal? (mk make-hash) (mk make-hasheqv))
+  (test #f equal? (mk make-hash) (mk make-hashalw))
   (test #f equal? (mk make-hasheq) (mk make-hasheqv))
+  (test #f equal? (mk make-hasheq) (mk make-hashalw))
+  (test #f equal? (mk make-hasheqv) (mk make-hashalw))
   (test #f equal? (mk make-hash) (mk make-weak-hash))
   (test #f equal? (mk make-hasheq) (mk make-weak-hasheq))
   (test #f equal? (mk make-hasheqv) (mk make-weak-hasheqv))
+  (test #f equal? (mk make-hashalw) (mk make-weak-hashalw))
   (test #f equal? (mk make-hash) (mk make-ephemeron-hash))
   (test #f equal? (mk make-hasheq) (mk make-ephemeron-hasheq))
   (test #f equal? (mk make-hasheqv) (mk make-ephemeron-hasheqv))
+  (test #f equal? (mk make-hashalw) (mk make-ephemeron-hashalw))
   (test #f equal? (mk make-weak-hash) (mk make-ephemeron-hash))
   (test #f equal? (mk make-weak-hasheq) (mk make-ephemeron-hasheq))
-  (test #f equal? (mk make-weak-hasheqv) (mk make-ephemeron-hasheqv)))
+  (test #f equal? (mk make-weak-hasheqv) (mk make-ephemeron-hasheqv))
+  (test #f equal? (mk make-weak-hashalw) (mk make-ephemeron-hashalw)))
 (let ([mk (lambda (mk)
             (mk `((1 . 2))))])
   (test #t equal? (mk make-immutable-hash) (mk make-immutable-hash))
   (test #t equal? (mk make-immutable-hasheq) (mk make-immutable-hasheq))
   (test #t equal? (mk make-immutable-hasheqv) (mk make-immutable-hasheqv))
+  (test #t equal? (mk make-immutable-hashalw) (mk make-immutable-hashalw))
   (test #f equal? (mk make-immutable-hash) (mk make-immutable-hasheq))
   (test #f equal? (mk make-immutable-hash) (mk make-immutable-hasheqv))
-  (test #f equal? (mk make-immutable-hasheq) (mk make-immutable-hasheqv)))
+  (test #f equal? (mk make-immutable-hash) (mk make-immutable-hashalw))
+  (test #f equal? (mk make-immutable-hasheq) (mk make-immutable-hasheqv))
+  (test #f equal? (mk make-immutable-hasheq) (mk make-immutable-hashalw))
+  (test #f equal? (mk make-immutable-hasheqv) (mk make-immutable-hashalw)))
 
 (let ([check-subset (lambda (mk1 mk2 [v2 2] #:k1 [k1 'a] #:k2 [k2 'a])
                       (define h1 (mk1 k1 #t 'b v2))
@@ -2830,6 +3255,8 @@
   (check-subset hasheq hasheq)
   (check-subset hasheqv hasheqv)
   (check-subset hasheqv hasheqv #:k1 (expt 2 70) #:k2 (expt 2 70))
+  (check-subset hashalw hashalw)
+  (check-subset hashalw hashalw #:k1 (cons 1 2) #:k2 (cons 1 2))
   (check-subset hash hash)
   (check-subset hash hash #:k1 (cons 1 2) #:k2 (cons 1 2))
   (check-subset hasheq (make-make-hash make-hasheq))
@@ -2838,6 +3265,9 @@
   (check-subset hasheqv (make-make-hash make-hasheqv))
   (check-subset hasheqv (make-make-hash make-weak-hasheqv))
   (check-subset hasheqv (make-make-hash make-ephemeron-hasheqv))
+  (check-subset hashalw (make-make-hash make-hashalw))
+  (check-subset hashalw (make-make-hash make-weak-hashalw))
+  (check-subset hashalw (make-make-hash make-ephemeron-hashalw))
   (check-subset hash (make-make-hash make-hash))
   (check-subset hash (make-make-hash make-weak-hash))
   (check-subset hash (make-make-hash make-ephemeron-hash))
@@ -2849,7 +3279,10 @@
                               (regexp-match? #rx"do not use the same key comparison" (exn-message x)))])
   (err/rt-test (hash-keys-subset? #hash() #hasheq()) not-same-comparison?)
   (err/rt-test (hash-keys-subset? #hash() #hasheqv()) not-same-comparison?)
+  (err/rt-test (hash-keys-subset? #hash() #hashalw()) not-same-comparison?)
   (err/rt-test (hash-keys-subset? #hasheq() #hasheqv()) not-same-comparison?)
+  (err/rt-test (hash-keys-subset? #hasheq() #hashalw()) not-same-comparison?)
+  (err/rt-test (hash-keys-subset? #hasheqv() #hashalw()) not-same-comparison?)
   (err/rt-test (hash-keys-subset? (make-hasheq #hasheqv()) not-same-comparison?))
   (err/rt-test (hash-keys-subset? (make-weak-hasheq #hasheqv()) not-same-comparison?))
   (err/rt-test (hash-keys-subset? (make-ephemeron-hasheq #hasheqv()) not-same-comparison?)))
@@ -2895,15 +3328,19 @@
 (let ([hts (list (make-hash)
                  (make-hasheq)
                  (make-hasheqv)
+                 (make-hashalw)
                  (make-weak-hash)
                  (make-weak-hasheq)
                  (make-weak-hasheqv)
+                 (make-weak-hashalw)
                  (make-ephemeron-hash)
                  (make-ephemeron-hasheq)
                  (make-ephemeron-hasheqv)
+                 (make-ephemeron-hashalw)
                  (hash)
                  (hasheq)
-                 (hasheqv))])
+                 (hasheqv)
+                 (hashalw))])
   (let* ([check-all-bad
           (lambda (op)
             (err/rt-test (op #f 0))
@@ -2976,6 +3413,7 @@
 (arity-test make-immutable-hash 0 1)
 (arity-test make-immutable-hasheq 0 1)
 (arity-test make-immutable-hasheqv 0 1)
+(arity-test make-immutable-hashalw 0 1)
 (arity-test hash-keys 1 2)
 (arity-test hash-values 1 2)
 (arity-test hash-count 1 1)
@@ -2988,6 +3426,9 @@
 (arity-test hash-for-each 2 3)
 (arity-test hash? 1 1)
 (arity-test hash-eq? 1 1)
+(arity-test hash-eqv? 1 1)
+(arity-test hash-equal-always? 1 1)
+(arity-test hash-equal? 1 1)
 (arity-test hash-weak? 1 1)
 (arity-test hash-ephemeron? 1 1)
 (arity-test hash-strong? 1 1)
@@ -3056,7 +3497,9 @@
         [ht2 (for/hash ([i (in-list l2)])
                (values (a i) (a (a i))))])
     (test (equal-hash-code ht) values (equal-hash-code ht2))
-    (test (equal-secondary-hash-code ht) values (equal-secondary-hash-code ht2)))
+    (test (equal-secondary-hash-code ht) values (equal-secondary-hash-code ht2))
+    (test (equal-always-hash-code ht) values (equal-always-hash-code ht2))
+    (test (equal-always-secondary-hash-code ht) values (equal-always-secondary-hash-code ht2)))
 
   ;; make sure `key's is retained until here:
   (when (positive? (random 1))
@@ -3083,7 +3526,9 @@
   (hash-set! ht 'b ht)
   (eq-hash-code ht)
   (equal-hash-code ht)
-  (equal-secondary-hash-code ht))
+  (equal-secondary-hash-code ht)
+  (equal-always-hash-code ht)
+  (equal-always-secondary-hash-code ht))
 
 ;; Check that an equal hash code on an
 ;;  mutable, opaque structure does not
@@ -3092,15 +3537,29 @@
   (struct a (x [y #:mutable]))
   (define an-a (a 1 2))
   (define v (equal-hash-code an-a))
+  (define v2 (equal-always-hash-code an-a))
   (set-a-y! an-a 8)
-  (test v equal-hash-code an-a))
+  (test v equal-hash-code an-a)
+  (test v2 equal-always-hash-code an-a))
+
+;; Check that an equal-always hash code on a
+;;  mutable, transparent structure does not
+;;  see mutation.
+(let ()
+  (struct a (x [y #:mutable]) #:transparent)
+  (define an-a (a 1 2))
+  (define v (equal-always-hash-code an-a))
+  (set-a-y! an-a 8)
+  (test v equal-always-hash-code an-a))
 
 ;; Check that `equal-hash-code` is consistent for interned symbols:
 (let ()
   (define v (random))
   (define k (equal-hash-code (string->symbol (format "sym:~a" v))))
+  (define k2 (equal-always-hash-code (string->symbol (format "sym:~a" v))))
   (collect-garbage 'minor)
-  (test k equal-hash-code (string->symbol (format "sym:~a" v))))
+  (test k equal-hash-code (string->symbol (format "sym:~a" v)))
+  (test k2 equal-always-hash-code (string->symbol (format "sym:~a" v))))
 
 ;; Try to build a hash table whose indexes don't fit in 32 bits:
 (let ()
@@ -3327,6 +3786,78 @@
   (struct a (x) #:transparent)
   (test #t equal?/recur (a 1) (a 2) (lambda (a b) 'yes))
   (test #f equal?/recur (a 1) (a 1) (lambda (a b) (not (eq? a 1)))))
+
+(let ()
+  (struct s (x) #:property prop:procedure 0)
+  (test #t equal?/recur (cons 1 2) (cons 1 2) (s (lambda (x y) #t)))
+  (test #t equal?/recur (vector 1) (vector 1) (s (lambda (x y) #t)))
+  (test #t equal?/recur (box 0) (box 0) (s (lambda (x y) #t)))
+  (test #t equal?/recur (mcons 3 4) (mcons 3 4) (s (lambda (x y) #t))))
+
+;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(test #t immutable-string? "apple")
+(test #f mutable-string? "apple")
+(test #f immutable-string? (string-copy "apple"))
+(test #t mutable-string? (string-copy "apple"))
+(test #f immutable-string? (void))
+(test #f mutable-string? (void))
+
+(test #t immutable-bytes? #"apple")
+(test #f mutable-bytes? #"apple")
+(test #f immutable-bytes? (bytes-copy #"apple"))
+(test #t mutable-bytes? (bytes-copy #"apple"))
+(test #f immutable-bytes? (void))
+(test #f mutable-bytes? (void))
+
+(test #t immutable-vector? #(1 2 3))
+(test #f mutable-vector? #(1 2 3))
+(test #f immutable-vector? (vector 1 2 3))
+(test #t mutable-vector? (vector 1 2 3))
+(test #f immutable-vector? (void))
+(test #f mutable-vector? (void))
+
+(test #t immutable-box? #&1)
+(test #f mutable-box? #&1)
+(test #f immutable-box? (box 1))
+(test #t mutable-box? (box 1))
+(test #f immutable-box? (void))
+(test #f mutable-box? (void))
+
+(test #t immutable-hash? #hash((1 . 2)))
+(test #t immutable-hash? #hasheqv((1 . 2)))
+(test #t immutable-hash? #hasheq((1 . 2)))
+(test #t immutable-hash? #hashalw((1 . 2)))
+(test #f mutable-hash? #hash((1 . 2)))
+(test #f mutable-hash? #hasheqv((1 . 2)))
+(test #f mutable-hash? #hasheq((1 . 2)))
+(test #f mutable-hash? #hashalw((1 . 2)))
+(test #f immutable-hash? (make-hash '((1 . 2))))
+(test #f immutable-hash? (make-hasheqv '((1 . 2))))
+(test #f immutable-hash? (make-hasheq '((1 . 2))))
+(test #f immutable-hash? (make-hashalw '((1 . 2))))
+(test #f immutable-hash? (make-weak-hash '((1 . 2))))
+(test #f immutable-hash? (make-weak-hasheqv '((1 . 2))))
+(test #f immutable-hash? (make-weak-hasheq '((1 . 2))))
+(test #f immutable-hash? (make-weak-hashalw '((1 . 2))))
+(test #f immutable-hash? (make-ephemeron-hash '((1 . 2))))
+(test #f immutable-hash? (make-ephemeron-hasheqv '((1 . 2))))
+(test #f immutable-hash? (make-ephemeron-hasheq '((1 . 2))))
+(test #f immutable-hash? (make-ephemeron-hashalw '((1 . 2))))
+(test #t mutable-hash? (make-hash '((1 . 2))))
+(test #t mutable-hash? (make-hasheqv '((1 . 2))))
+(test #t mutable-hash? (make-hasheq '((1 . 2))))
+(test #t mutable-hash? (make-hashalw '((1 . 2))))
+(test #t mutable-hash? (make-weak-hash '((1 . 2))))
+(test #t mutable-hash? (make-weak-hasheqv '((1 . 2))))
+(test #t mutable-hash? (make-weak-hasheq '((1 . 2))))
+(test #t mutable-hash? (make-weak-hashalw '((1 . 2))))
+(test #t mutable-hash? (make-ephemeron-hash '((1 . 2))))
+(test #t mutable-hash? (make-ephemeron-hasheqv '((1 . 2))))
+(test #t mutable-hash? (make-ephemeron-hasheq '((1 . 2))))
+(test #t mutable-hash? (make-ephemeron-hashalw '((1 . 2))))
+(test #f immutable-hash? (void))
+(test #f mutable-hash? (void))
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

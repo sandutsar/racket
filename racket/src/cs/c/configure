@@ -622,6 +622,9 @@ ac_includes_default="\
 
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
+upsrcdir
+CFLAGS_FOR_BUILD
+CC_FOR_BUILD
 RKTIO_CONFIGURE_ARGS
 PLT_CS_SLSP_SUFFIX
 INSTALL_LIBS_ENABLE
@@ -629,6 +632,7 @@ INSTALL_SETUP_RACKET_FLAGS
 INSTALL_SETUP_FLAGS
 PBCHUNK_MODE
 SCHEME_LIBFFI
+ENABLE_EXTRA_CHECKS
 DISABLE_WPO
 CS_COMPILED_SUBDIR
 CS_INSTALLED
@@ -643,6 +647,7 @@ DISABLE_ICONV
 LZ4_LIB
 Z_LIB
 MINGW
+SIGNED_EXE
 OSX
 SETUP_BOOT_MODE
 CROSS_MODE
@@ -786,6 +791,7 @@ enable_mach
 enable_target
 enable_pb
 enable_pbchunk
+enable_check
 enable_portable
 enable_natipkg
 enable_sdk
@@ -796,7 +802,8 @@ enable_userfw
 enable_embedfw
 enable_mac64
 enable_libs
-enable_noopt
+enable_postlink
+enable_strip
 enable_ubsan
 enable_asan
 enable_csdefault
@@ -863,7 +870,7 @@ docdir='${datarootdir}/doc/${PACKAGE}'
 infodir='${datarootdir}/info'
 htmldir='${docdir}'
 collectsdir='${exec_prefix}/share/${PACKAGE}/collects'
-pkgsdir='${datarootdir}/${PACKAGE}/pkgs'
+pkgsdir='${datadir}/${PACKAGE}/pkgs'
 psdir='${docdir}'
 libdir='${exec_prefix}/lib'
 appsdir='${exec_prefix}/share/applications'
@@ -871,6 +878,33 @@ mandir='${datarootdir}/man'
 
 ac_prev=
 ac_dashdash=
+
+# Added to the front of an autoconf script to handle
+# `CFLAGS+=...` and similar additions, athering the
+# content into vabiables like `CFLAGS_ADD` and removing
+# them from autoconf's view
+
+for arg do
+    shift
+    case $arg in
+        CFLAGS+=*)
+            CFLAGS_ADD="${CFLAGS_ADD} "`echo $arg | sed -e 's/^CFLAGS+=//'`
+            ;;
+        CPPFLAGS+=*)
+            CPPFLAGS_ADD="${CPPFLAGS_ADD} "`echo $arg | sed -e 's/^CPPFLAGS+=//'`
+            ;;
+        LDFLAGS+=*)
+            LDFLAGS_ADD="${LDFLAGS_ADD} "`echo $arg | sed -e 's/^LDFLAGS+=//'`
+            ;;
+        LIBS+=*)
+            LIBS_ADD="${LIBS_ADD} "`echo $arg | sed -e 's/^LIBS+=//'`
+            ;;
+        *)
+            set -- "$@" "$arg"
+            ;;
+    esac
+done
+
 for ac_option
 do
   # If the previous option needs an argument, assign it.
@@ -1361,10 +1395,11 @@ if test "$ac_init_help" = "long"; then
   cat <<_ACEOF
 \`configure' configures this package to adapt to many kinds of systems.
 
-Usage: $0 [OPTION]... [VAR=VALUE]...
+Usage: $0 [OPTION]... [VAR=VALUE]... [VAR+=VALUE]...
 
 To assign environment variables (e.g., CC, CFLAGS...), specify them as
 VAR=VALUE.  See below for descriptions of some of the useful variables.
+Use += with CFLAGS, CPPFLAGS, LDFLAGS, or LIBS to add to the variable.
 
 Defaults for the options are specified in brackets.
 
@@ -1440,11 +1475,12 @@ Optional Features:
   --enable-docs           build docs on install (enabled by default)
   --enable-usersetup      setup user-specific files on install
   --enable-racket=<path>  use <path> as Racket for build; or "auto" to create
-  --enable-scheme=<path>  use <path> as host build for cross
+  --enable-scheme=<path>  use <path> as Chez Scheme for build
   --enable-mach=<mach>    use Chez Scheme machine type <mach>
   --enable-target=<mach>  cross-build for Chez Scheme machine type <mach>
   --enable-pb             build for platform without native-code backend
   --enable-pbchunk        enable C chunks for pb boot (enabled by default)
+  --enable-check          enable extra safety checks for testing
   --enable-portable       prefer portable to host-specific
   --enable-natipkg        add "-natipkg" to library subpath
   --enable-sdk=<path>     use Mac OS 10.4 SDK directory
@@ -1461,6 +1497,7 @@ Optional Features:
   --enable-embedfw        embed Mac OS framework content in executables
   --enable-mac64          allow 64-bit Mac OS build (enabled by default)
   --enable-libs           install static libraries (enabled by default for Unix)
+  --enable-postlink=<cmd> apply <cmd> to executable after linking
   --enable-strip          strip debug on install (usually enabled by default)
   --enable-ubsan          compile with -fsanitize=undefined
   --enable-asan           compile with -fsanitize=address
@@ -2380,6 +2417,7 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
+
 ac_config_headers="$ac_config_headers cs_config.h"
 
 
@@ -2548,6 +2586,7 @@ if test "${enable_iconv+set}" = set; then :
 fi
 
 
+
 # Check whether --enable-curses was given.
 if test "${enable_curses+set}" = set; then :
   enableval=$enable_curses;
@@ -2644,6 +2683,11 @@ if test "${enable_pbchunk+set}" = set; then :
   enableval=$enable_pbchunk;
 fi
 
+# Check whether --enable-check was given.
+if test "${enable_check+set}" = set; then :
+  enableval=$enable_check;
+fi
+
 
 # Check whether --enable-portable was given.
 if test "${enable_portable+set}" = set; then :
@@ -2731,9 +2775,15 @@ if test "${enable_libs+set}" = set; then :
 fi
 
 
-# Check whether --enable-noopt was given.
-if test "${enable_noopt+set}" = set; then :
-  enableval=$enable_noopt;
+# Check whether --enable-postlink was given.
+if test "${enable_postlink+set}" = set; then :
+  enableval=$enable_postlink;
+fi
+
+
+# Check whether --enable-strip was given.
+if test "${enable_strip+set}" = set; then :
+  enableval=$enable_strip;
 fi
 
 
@@ -2906,6 +2956,7 @@ show_explicitly_enabled "${enable_iconv}" "iconv"
 show_explicitly_disabled "${enable_iconv}" "iconv"
 show_explicitly_enabled "${enable_curses}" "curses"
 show_explicitly_disabled "${enable_curses}" "curses"
+show_explicitly_enabled "${enable_check}" "Extra checks"
 
 if test "${enable_bconly}" = "yes" ; then
    if test "${enable_csonly}" = "yes" ; then
@@ -3127,7 +3178,7 @@ if test "${enable_origtree}" != "yes" -a "${enable_useprefix}" != "no" ; then
   if test "${collectsdir}" != '${exec_prefix}/share/${PACKAGE}/collects' ; then
     unixstyle=yes
   fi
-  if test "${pkgsdir}" != '${datarootdir}/${PACKAGE}/pkgs' ; then
+  if test "${pkgsdir}" != '${datadir}/${PACKAGE}/pkgs' ; then
     unixstyle=yes
   fi
   if test "${appsdir}" != '${exec_prefix}/share/applications' ; then
@@ -3279,11 +3330,11 @@ use_flag_pthread=yes
 use_flag_posix_pthread=no
 
 OSX="f"
+SIGNED_EXE="f"
 MINGW="f"
 CONFIGURE_RACKET_SO_COMPILE=""
 COMPRESS_COMP=""
 BOOT_COMPRESS_COMP=""
-POST_LINKER=""
 
 FRAMEWORK_INSTALL_DIR='$(libpltdir)'
 FRAMEWORK_PREFIX='@executable_path/../lib/'
@@ -3316,6 +3367,12 @@ COPY_NEW_CFLAGS_TO_CPPFLAGS=no
 SCHEME_LIBFFI=no
 PBCHUNK_MODE=plain
 
+if test "${CC_FOR_BUILD}" = ""; then
+  CC_FOR_BUILD='$(CC) -O2'
+fi
+
+ENABLE_EXTRA_CHECKS=no
+
 ###### Autoconfigure #######
 
 if test "${enable_ios}" != "" ; then
@@ -3329,16 +3386,27 @@ if test "${enable_ios}" != "" ; then
   esac
   case "${enable_ios}" in
     iPhoneOS|iPhoneSimulator)
-     ios_sdk=/Applications/Xcode.app/Contents/Developer/Platforms/${enable_ios}.platform/Developer/SDKs/${enable_ios}.sdk
-     echo "=== Using inferred iOS SDK path ${ios_sdk}"
+     IOS_SDK=/Applications/Xcode.app/Contents/Developer/Platforms/${enable_ios}.platform/Developer/SDKs/${enable_ios}.sdk
+     echo "=== Using inferred iOS SDK path ${IOS_SDK}"
      ;;
     *)
-     ios_sdk="${enable_ios}"
+     IOS_SDK="${enable_ios}"
      ;;
   esac
   IOS_PHONE_VERS="6.0"
-  PREFLAGS="$PREFLAGS -DTARGET_OS_IPHONE=1 -arch ${IOS_ARCH} -isysroot ${ios_sdk} -miphoneos-version-min=${IOS_PHONE_VERS}"
-  LDFLAGS="$LDFLAGS -arch ${IOS_ARCH} -isysroot ${ios_sdk} -miphoneos-version-min=${IOS_PHONE_VERS} -liconv"
+  IOS_SDK_FLAGS="-miphoneos-version-min=${IOS_PHONE_VERS}"
+  case "${IOS_SDK}" in
+      # When -arch is arm64-apple-darwin and -sdk is iPhoneSimulator,
+      # passing -miphoneos-version-min makes clang think it's targeting
+      # iPhoneOS instead of iPhoneSimulator, which causes the configure
+      # script to fail. There is no -miphonesimulator-version-min flag.
+      # The -mtargetos flag exhibits the same behavior.
+      *iPhoneSimulator.sdk)
+          IOS_SDK_FLAGS=""
+          ;;
+  esac
+  PREFLAGS="$PREFLAGS -DTARGET_OS_IPHONE=1 -arch ${IOS_ARCH} -isysroot ${IOS_SDK} ${IOS_SDK_FLAGS}"
+  LDFLAGS="$LDFLAGS -arch ${IOS_ARCH} -isysroot ${IOS_SDK} ${IOS_SDK_FLAGS} -liconv"
 fi
 
 
@@ -3649,6 +3717,33 @@ See \`config.log' for more details" "$LINENO" 5; }
 $as_echo "$as_me:${as_lineno-$LINENO}: checking for C compiler version" >&5
 set X $ac_compile
 ac_compiler=$2
+
+# Added to the front of an autoconf script to handle
+# `CFLAGS+=...` and similar additions, athering the
+# content into vabiables like `CFLAGS_ADD` and removing
+# them from autoconf's view
+
+for arg do
+    shift
+    case $arg in
+        CFLAGS+=*)
+            CFLAGS_ADD="${CFLAGS_ADD} "`echo $arg | sed -e 's/^CFLAGS+=//'`
+            ;;
+        CPPFLAGS+=*)
+            CPPFLAGS_ADD="${CPPFLAGS_ADD} "`echo $arg | sed -e 's/^CPPFLAGS+=//'`
+            ;;
+        LDFLAGS+=*)
+            LDFLAGS_ADD="${LDFLAGS_ADD} "`echo $arg | sed -e 's/^LDFLAGS+=//'`
+            ;;
+        LIBS+=*)
+            LIBS_ADD="${LIBS_ADD} "`echo $arg | sed -e 's/^LIBS+=//'`
+            ;;
+        *)
+            set -- "$@" "$arg"
+            ;;
+    esac
+done
+
 for ac_option in --version -v -V -qversion; do
   { { ac_try="$ac_compiler $ac_option >&5"
 case "(($ac_try" in
@@ -4132,6 +4227,30 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
+
+# The "filter_add.sh" script is inserted into autoconf output just
+# before the generated configure script handles arguments. The
+# configure script later handles the variables potentially built up
+# here, adding contents to the default or initially configured flag
+# sets.
+
+if test "$CPPFLAGS_ADD" != "" ; then
+   CPPFLAGS="$CPPFLAGS $CPPFLAGS_ADD"
+fi
+
+if test "$CFLAGS_ADD" != "" ; then
+   CFLAGS="$CFLAGS $CFLAGS_ADD"
+fi
+
+if test "$LDFLAGS_ADD" != "" ; then
+   LDFLAGS="$LDFLAGS $LDFLAGS_ADD"
+fi
+
+if test "$LIBS_ADD" != "" ; then
+   LIBS="$LIBS $LIBS_ADD"
+fi
+
+
 # If using gcc, we'll want all warnings
 
 is_gcc=`$CC -v 2>&1 | tail -n 1 | grep -E '^gcc version [[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+ \([^\)]+\)[[:space:]]*$'`
@@ -4429,15 +4548,21 @@ case "$host_os" in
     MACH_OS=nb
     LIBS="${LIBS} -lm -lpthread"
     LINK_DYNAMIC="-rdynamic"
-    add_iconv_lib="/usr/lib/i18n/libiconv_std.a"
-    skip_curses_check=yes
-    add_curses_lib="/usr/pkg/lib/libncurses.a"
-    POST_LINKER="paxctl +m"
+    skip_iconv_check=yes
+    add_curses_lib="-lterminfo"
+    default_post_linker="paxctl +m"
     ;;
   irix*)
     ;;
-  linux*)
-    MACH_OS=le
+  linux*|gnu*)
+    case "$host_os" in
+      linux*)
+        MACH_OS=le
+        ;;
+      *)
+        MACH_OS=gnu # Hurd
+        ;;
+    esac
     case "$host_os" in
       *linux-android*)
         ;;
@@ -4460,6 +4585,7 @@ case "$host_os" in
     MACH_OS=nt
     LIBS="${LIBS} -lshell32 -luser32 -lole32 -lrpcrt4 -luuid -lws2_32 -ladvapi32 -lwinmm"
     MINGW="t"
+    # keep "winfig.bat" consistent with the compression default:
     compress_boot_files_by_default=yes
     if `which ${host}-windres > /dev/null` ; then
       WINDRES="${host}-windres"
@@ -4474,8 +4600,12 @@ case "$host_os" in
   darwin*)
     PREFLAGS="$PREFLAGS -DOS_X"
     MACH_OS=osx
+    if test "${enable_ios}" != "" ; then
+      MACH_OS=ios
+    fi
     LIBS="${LIBS} -framework CoreFoundation"
     LDFLAGS="${LDFLAGS} -Wl,-headerpad_max_install_names"
+    SIGNED_EXE="t"
     if test "${enable_xonx}" = "no" ; then
       OSX="t"
     else
@@ -4664,8 +4794,21 @@ case "$MACH_HOST_CPU" in
     MACH="${thread_prefix}ppc32${MACH_OS}"
     pb_machine_name="${thread_prefix}pb32b"
     ;;
+  riscv64*)
+    MACH="${thread_prefix}rv64${MACH_OS}"
+    pb_machine_name="${thread_prefix}pb64l"
+    ;;
+  loongarch64*)
+    MACH="${thread_prefix}la64${MACH_OS}"
+    pb_machine_name="${thread_prefix}pb64l"
+    ;;
 esac
 
+if test "${MACH}" = "" ; then
+  default_mach_was_empty=yes
+else
+  default_mach_was_empty=no
+fi
 
 if test "${enable_mach}" != "" ; then
   MACH="${enable_mach}"
@@ -4688,13 +4831,15 @@ elif test "$MACH" = "" -o "$MACH_OS" = "" ; then
    exit 1
 fi
 
-# For a pb build where Racket is supplied, force cross-build
-# mode on the assumption that the host is not a pb build
-# (because it should be created with default configure options)
+# For a pb build where Racket is supplied as "auto" and MACH was not originally
+# empty, force cross-build mode on the assumption that the host is not
+# a pb build (because it should be created with default configure options)
 if test "${enable_pb}" = "yes" ; then
-  if test "${enable_racket}" != "" ; then
+  if test "${enable_racket}" = "auto" ; then
     if test "${enable_target}" = "" ; then
-      enable_target="${MACH}"
+      if test "${default_mach_was_empty}" = "no" ; then
+        enable_target="${MACH}"
+      fi
     fi
   fi
 fi
@@ -4716,6 +4861,9 @@ if test "${build_os}_${build_cpu}" != "${host_os}_${host_cpu}" ; then
       ;;
     linux*)
       BUILD_OS=le
+      ;;
+    gnu*) # Hurd - must come after linux*
+      BUILD_OS=gnu
       ;;
     *mingw*)
       BUILD_OS=nt
@@ -4749,6 +4897,12 @@ if test "${build_os}_${build_cpu}" != "${host_os}_${host_cpu}" ; then
       ;;
     power*)
       BUILD_MACH="${BUILD_THREAD_PREFIX}ppc32${BUILD_OS}"
+      ;;
+    riscv64*)
+      BUILD_MACH="${BUILD_THREAD_PREFIX}rv64${BUILD_OS}"
+      ;;
+    loongarch64*)
+      BUILD_MACH="${BUILD_THREAD_PREFIX}la64${BUILD_OS}"
       ;;
     *)
       echo "unknown build CPU"
@@ -4796,7 +4950,7 @@ if test "${enable_racket}" != "" ; then
   # Racket used only for generating Chez Scheme boot files
   if test "${CROSS_MODE}" = "cross" ; then
     RACKET="${enable_racket}"
-  else
+  elif test "${enable_racket}" != "auto" ; then
     BOOTFILE_RACKET="${enable_racket}"
   fi
 fi
@@ -4910,7 +5064,7 @@ $as_echo "no" >&6; }
 fi
 
   if test "x$ac_ct_STRIP" = x; then
-    STRIP=""
+    STRIP=":"
   else
     case $cross_compiling:$ac_tool_warned in
 yes:)
@@ -4931,6 +5085,9 @@ fi
   fi
   if test "${strip_needs_dash_s}" = "yes" ; then
     check_strip_dash_s=yes
+  fi
+  if test "${STRIP}" = ":"; then
+    check_strip_dash_s=no
   fi
   if test "${check_strip_dash_s}" = "yes" ; then
     # Can only support library stripping if something like "-S" is available:
@@ -4961,6 +5118,19 @@ $as_echo "$set_strip_lib" >&6; }
     fi
   fi
   ICP_STRIP_FLAG=" -s"
+fi
+
+
+############## post-linker ################
+
+if test "${enable_postlink}" != "" ; then
+  POST_LINKER="${enable_postlink}"
+else
+  POST_LINKER="${default_post_linker}"
+fi
+
+if test "${POST_LINKER}" != "" ; then
+  echo "post-linker command: ${POST_LINKER}"
 fi
 
 
@@ -5951,6 +6121,12 @@ if test "${ac_cv_sizeof_void_p}" != "4" ; then
 fi
 
 
+############## etxra checks ################
+
+if test "${enable_check}" = "yes" ; then
+  ENABLE_EXTRA_CHECKS=yes
+fi
+
 ############## subconfigure ################
 
 # Before libtool setup
@@ -6046,6 +6222,15 @@ fi
 
 ############## final output ################
 
+case "$srcdir" in
+    /*)
+        upsrcdir="$srcdir"
+        ;;
+    *)
+        upsrcdir="../$srcdir"
+        ;;
+esac
+
 # Pass certain configure args on to rktio
 keep_configure_args=
 fixup_prev=
@@ -6122,7 +6307,12 @@ RKTIO_CONFIGURE_ARGS="${keep_configure_args} ${SUB_CONFIGURE_EXTRAS}"
 
 
 
-makefiles="Mf-config"
+
+
+
+
+
+makefiles="Makefile"
 
 ac_config_files="$ac_config_files $makefiles"
 
@@ -7400,3 +7590,5 @@ fi
 
 
 cp ${srcdir}/buildmain.zuo main.zuo
+
+show_path_results

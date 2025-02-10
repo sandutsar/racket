@@ -564,6 +564,12 @@ static int s_ee_write_char(wchar_t c) {
 
   GetConsoleScreenBufferInfo(hStdout, &post_info);
 
+  if (post_info.dwCursorPosition.X == post_info.dwSize.X-1) {
+    /* We don't know whether the cursor advanced as much as it would
+       earlier in the line, so return -128 to mean "unknown". */
+    return -128;
+  }
+
   return post_info.dwCursorPosition.X - pre_info.dwCursorPosition.X;
 }
 
@@ -654,8 +660,8 @@ static void s_ee_set_color(int color_id, IBOOL background) {
 # define CHTYPE int
 # include </usr/include/curses.h>
 # include </usr/include/term.h>
-#elif defined(NETBSD)
-# include <ncurses.h>
+#elif defined(__DragonFly__)
+# include <ncurses/curses.h>
 # include <ncurses/term.h>
 #else
 # include <curses.h>
@@ -667,11 +673,15 @@ static void s_ee_set_color(int color_id, IBOOL background) {
 #include <sys/ioctl.h>
 #include <wchar.h>
 #include <locale.h>
-#if !defined(__GLIBC__) && !defined(__OpenBSD__) && !defined(__NetBSD__) && !defined(__linux__) && !defined(NO_USELOCALE)
+#if defined(__linux__)
+# include <unistd.h>
+# include <time.h>
+#endif
+#if !defined(__GLIBC__) && !defined(__COSMOPOLITAN__) && !defined(__OpenBSD__) && !defined(__NetBSD__) && !defined(__linux__) && !defined(__EMSCRIPTEN__) && !defined(NO_USELOCALE)
 # include <xlocale.h>
 #endif
 
-#if defined(__linux__) && !defined(_XOPEN_SOURCE)
+#if (defined(__gnu_hurd__) || defined(__linux__)) && !defined(_XOPEN_SOURCE)
 extern int wcwidth(wchar_t);
 #endif
 
@@ -1294,9 +1304,18 @@ static void s_ee_flush(void) {
   fflush(stdout);
 }
 
+static ptr s_ee_pending_winch() {
+#ifdef HANDLE_SIGWINCH
+  return winched ? Strue : Sfalse;
+#else
+  return Sfalse;
+#endif
+}
+
 void S_expeditor_init(void) {
   Sforeign_symbol("(cs)ee_init_term", (void *)s_ee_init_term);
   Sforeign_symbol("(cs)ee_read_char", (void *)s_ee_read_char);
+  Sforeign_symbol("(cs)ee_pending_winch", (void *)s_ee_pending_winch);
   Sforeign_symbol("(cs)ee_write_char", (void *)s_ee_write_char);
   Sforeign_symbol("(cs)ee_char_width", (void *)s_ee_char_width);
   Sforeign_symbol("(cs)ee_set_color", (void *)s_ee_set_color);

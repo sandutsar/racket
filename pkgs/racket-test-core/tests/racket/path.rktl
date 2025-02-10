@@ -5,6 +5,12 @@
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(test #f equal? (bytes->path #"a") (bytes->path #"b"))
+(test #t equal? (bytes->path #"a") (bytes->path #"a"))
+(test #t equal-always? (bytes->path #"a") (bytes->path #"a"))
+(test (equal-hash-code (bytes->path #"a")) equal-hash-code (bytes->path #"a"))
+(test (equal-always-hash-code (bytes->path #"a")) equal-always-hash-code (bytes->path #"a"))
+
 (test #t path<? (bytes->path #"a") (bytes->path #"b"))
 (test #f path<? (bytes->path #"b") (bytes->path #"a"))
 (test #t path<? (bytes->path #"a") (bytes->path #"b") (bytes->path #"c"))
@@ -33,7 +39,15 @@
   (test (string->some-system-path "p/x.zo" 'unix)
         path-add-extension (string->some-system-path "p/x" 'unix) ".zo")
   (test (string->some-system-path "p/x.zo" 'windows)
-        path-add-extension (string->some-system-path "p/x" 'windows) ".zo"))
+        path-add-extension (string->some-system-path "p/x" 'windows) ".zo")
+  (err/rt-test (path-add-extension (build-path 'same) ".zo")
+               "cannot add an extension")
+  (err/rt-test (path-add-extension (build-path/convention 'same 'windows) ".zo")
+               "cannot add an extension")
+  (err/rt-test (path-add-extension (build-path/convention "/" 'unix) ".zo")
+               "cannot add an extension")
+  (err/rt-test (path-add-extension (build-path/convention "c:" 'windows) ".zo")
+               "cannot add an extension"))
 
 (test-basic-extension path-replace-extension
                       path-add-extension)
@@ -195,6 +209,33 @@
 (err/rt-test (copy-file "tmp5" "tmp5y") exn:fail:filesystem:exists?)
 (err/rt-test (copy-file "no-such-tmp5" "tmp5y") (lambda (x) (not (exn:fail:filesystem:exists? x))))
 (delete-file "tmp5y")
+
+(define (copy-file* src dest [exists-ok? #f] [permissions #f] [replace-perms? #t])
+  (if (zero? (random 2))
+      (copy-file src dest
+                 exists-ok? ; by-position argument
+                 #:permissions permissions
+                 #:replace-permissions? replace-perms?)
+      (copy-file src dest
+                 #:exists-ok? exists-ok?
+                 #:permissions permissions
+                 #:replace-permissions? replace-perms?)))
+
+(define copy-file*/tf (make-/tf copy-file* exn:fail:filesystem?))
+(test #t copy-file*/tf "tmp5" "tmp5y")
+(test #t copy-file*/tf "tmp5" "tmp5y" #t)
+(test (file-or-directory-permissions "tmp5") file-or-directory-permissions "tmp5y")
+(test #t copy-file*/tf "tmp5" "tmp5y" #t #o111)
+(test (if (eq? 'windows (system-type)) #o555 #o111) file-or-directory-permissions "tmp5y" 'bits)
+(delete-file "tmp5y")
+(test #t copy-file*/tf "tmp5" "tmp5y" #f #o666)
+(test (if (eq? 'windows (system-type)) #o777 #o666) file-or-directory-permissions "tmp5y" 'bits)
+(unless (eq? 'windows (system-type))
+  (test #t copy-file*/tf "tmp5" "tmp5y" #t #f #f) ; don't replace existing file's permissions
+  (test #o666 file-or-directory-permissions "tmp5y" 'bits))
+(delete-file "tmp5y")
+(err/rt-test (copy-file "tmp5" "tmp5y" #t #:exists-ok? #t) exn:fail? "both")
+(err/rt-test (copy-file "tmp5" "tmp5y" #f #:exists-ok? #f) exn:fail? "both")
 
 (test #t rename-file-or-directory/tf "tmp5" "tmp5x")
 (test #f rename-file-or-directory/tf "tmp5" "tmp5x")
@@ -459,6 +500,44 @@
 
 (test (build-path "no-such-dir" "b") simplify-path "no-such-dir/b" #t)
 (test (path->complete-path (build-path "no-such-dir" "b")) simplify-path "no-such-dir//b" #t)
+
+(unless (eq? 'windows (system-type))
+  (for ([abs? (in-list '(#f #t))])
+    (define tmp (make-temporary-directory))
+
+    (define d (build-path tmp "d"))
+    (make-directory d)
+
+    (define e (build-path d "e"))
+    (make-directory e)
+
+    (define f (build-path e "f"))
+    (call-with-output-file*
+     f
+     (lambda (o) (display "hi\n" o)))
+
+    (define k (build-path tmp "k"))
+    (make-file-or-directory-link (if abs? e "d/e") k)
+
+    (define k2 (build-path tmp "k2"))
+    (make-file-or-directory-link "k" k2)
+
+    (define k3 (build-path e "k3"))
+    (make-file-or-directory-link "../e" k3)
+
+    (define k4 (build-path e "k4"))
+    (make-file-or-directory-link "../../d/./e" k4)
+
+    (define loop (build-path tmp "loop"))
+    (make-file-or-directory-link "loop" loop)
+
+    (test (build-path d "e" "f") simplify-path (build-path k 'up "e" "f"))
+    (test (build-path d "e" "f") simplify-path (build-path k2 'up "e" "f"))
+    (test (build-path d "e" "f") simplify-path (build-path k3 'up "e" "f"))
+    (test (build-path d "e" "f") simplify-path (build-path k4 'up "e" "f"))
+    (err/rt-test/once (simplify-path (build-path loop 'up)) exn:fail:filesystem? "cycle detected")
+
+    (delete-directory/files tmp)))
 
 (arity-test cleanse-path 1 1)
 (arity-test expand-user-path 1 1)
@@ -1019,8 +1098,9 @@
 (err/rt-test (path-element->bytes (bytes->path #"\\\\?\\RED\\a" 'windows)))
 (err/rt-test (bytes->path-element #"." 'unix))
 (err/rt-test (bytes->path-element #".." 'unix))
-(err/rt-test (bytes->path-element "a/b" 'unix))
-(err/rt-test (bytes->path-element "a\\b" 'windows))
+(err/rt-test (bytes->path-element #"a/b" 'unix))
+(err/rt-test (bytes->path-element #"a\\b" 'windows))
+(test #f bytes->path-element #"a\\b" 'windows #t)
 
 (err/rt-test (bytes->path-element #""))
 (err/rt-test (string->path-element ""))

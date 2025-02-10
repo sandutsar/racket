@@ -18,6 +18,7 @@
     unless
     begin
     cond
+    else
     quote
     quasiquote
     unquote
@@ -26,6 +27,7 @@
 
     define
     define-syntax
+    struct
     include
     require
     provide
@@ -58,6 +60,7 @@
     car
     cdr
     list
+    list*
     append
     reverse
     length
@@ -66,11 +69,15 @@
     remove
     list-ref
     list-set
+    list-tail
+
+    caar cadr cdar cddr
 
     andmap
     ormap
     map
     filter
+    sort
     foldl
     for-each
 
@@ -84,6 +91,7 @@
     *
     quotient
     modulo
+    remainder
     <
     <=
     =
@@ -100,11 +108,13 @@
     substring
     string=?
     string-ci=?
+    string<?
+    string->integer
     string->symbol
     string->uninterned-symbol
     symbol->string
     string
-    string-sha1
+    string-sha256
     char
     string-split string-join string-trim
     string-tree?
@@ -145,8 +155,10 @@
     fd-close
     fd-read
     fd-write
+    fd-poll
     eof
     fd-terminal?
+    fd-valid?
     file->string
     display-to-file
 
@@ -166,6 +178,7 @@
     file-name-from-path
     path->complete-path
     ls* rm* cp* mkdir-p
+    :no-replace-mode
     :error :truncate :must-truncate :append :update :can-update
     cleanable-file
     cleanable-cancel
@@ -191,6 +204,7 @@
     build-module-path
     kernel-env
     kernel-eval
+    dynamic-require
 
     runtime-env
     dump-image-and-exit
@@ -205,14 +219,16 @@
     input-file-target
     input-data-target
     target-path
+    target-shell
     target-name
     target?
     token?
     rule?
     phony-rule?
-    sha1?
-    file-sha1
-    no-sha1
+    sha256?
+    file-sha256
+    no-sha256
+    sha256-length
     build
     build/command-line
     build/command-line*
@@ -226,13 +242,25 @@
     command-target->target
     bounce-to-targets
 
+    glob->matcher glob-match?
+
     shell
     shell/wait
     build-shell
+    shell-subst
+
+    c-compile c-link c-ar
+    .c->.o .exe .a
+    config-merge config-include config-define
 
     call-in-main-thread
-    thread? thread channel? channel channel-put channel-get
+    thread? thread channel? channel channel-put channel-get channel-try-get
     thread-process-wait
-    config-file->hash))
+    config-file->hash
+
+    maybe-jobserver-client
+    maybe-jobserver-jobs
+
+    maybe-dry-run-mode))
 
 (intro-define-fake)

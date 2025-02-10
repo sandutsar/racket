@@ -12,6 +12,10 @@
                   [current-directory host:current-directory]
                   [path->string host:path->string]))
 
+(require (file "/tmp/simp.rkt"))
+(check-simplify (lambda (p) (path->string (simplify-path (host:path->string p)))))
+(exit)
+
 (path->string (current-directory))
 (set-string->number?! string->number)
 
@@ -396,6 +400,9 @@
         (error))
       (loop (add1 x) (cdr content) (list* bstr bstr accum))])))
 
+(test #t (equal? (build-path "a" "b") (build-path "a" "b")))
+(test #t (equal-always? (build-path "a" "b") (build-path "a" "b")))
+
 (let ()
   (define path (build-path "compiled" "demo-out"))
   (define o (open-output-file path 'truncate))
@@ -740,6 +747,10 @@
 (print-test '#:|apple pie| "'#:|apple pie|")
 (print-test '#:1.0 "'#:1.0")
 (print-test 1.0 "1.0")
+
+(print-test (stencil-vector 3 "a" 'b) "#<stencil 3: \"a\" b>")
+(print-test (stencil-vector 3 "a" 'b) "#<stencil 3: a b>" #:print display)
+(print-test (stencil-vector 3 "a" 'b) "#<stencil 3: \"a\" b>" #:print write)
 
 ;; ----------------------------------------
 

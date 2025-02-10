@@ -1,6 +1,7 @@
 (library (rumble)
   (export version
           banner
+          set-build-stamp! ; not exported to Racket
 
           null eof void void?
 
@@ -84,6 +85,7 @@
           error-print-width
           error-value->string-handler
           error-syntax->string-handler
+          error-syntax->name-handler
           error-print-context-length
           exception-handler-key
           uncaught-exception-handler
@@ -96,6 +98,7 @@
           linklet-instantiate-key ; not exported to Racket
           set-error-display-eprintf! ; not exported to Racket
           set-log-system-message! ; not exported to Racket
+          set-error-value->string! ; not exported to Racket
 
           current-inspector
           make-inspector
@@ -178,6 +181,8 @@
 
           equal?
           equal?/recur
+          equal-always?
+          equal-always?/recur
 
           impersonator?
           chaperone?
@@ -263,6 +268,7 @@
           struct->vector
           prefab-key?
           prefab-struct-key
+          prefab-struct-type-key+field-count
           prefab-key->struct-type
           make-prefab-struct
           prop:authentic
@@ -282,13 +288,17 @@
           eq-hash-code
           eqv-hash-code
           equal-hash-code
+          equal-hash-code/recur
           equal-secondary-hash-code
+          equal-always-hash-code
+          equal-always-hash-code/recur
+          equal-always-secondary-hash-code
 
-          hash hasheqv hasheq
-          make-hash make-hasheqv make-hasheq
-          make-immutable-hash make-immutable-hasheqv make-immutable-hasheq
-          make-weak-hash make-weak-hasheq make-weak-hasheqv
-          make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv
+          hash hasheqv hasheq hashalw
+          make-hash make-hasheqv make-hasheq make-hashalw
+          make-immutable-hash make-immutable-hasheqv make-immutable-hasheq make-immutable-hashalw
+          make-weak-hash make-weak-hasheq make-weak-hasheqv make-weak-hashalw
+          make-ephemeron-hash make-ephemeron-hasheq make-ephemeron-hasheqv make-ephemeron-hashalw
           hash-ref hash-ref-key hash-set hash-set! hash-remove hash-remove!
           hash-for-each hash-map hash-copy hash-clear hash-clear!
           hash-iterate-first hash-iterate-next
@@ -308,7 +318,9 @@
           unsafe-ephemeron-hash-iterate-key+value unsafe-ephemeron-hash-iterate-pair
           unsafe-hash-seal!    ; not exported to racket
 
-          hash? hash-eq? hash-equal? hash-eqv? hash-strong? hash-weak? hash-ephemeron?
+          hash? hash-eq? hash-equal? hash-eqv? hash-equal-always? hash-strong? hash-weak? hash-ephemeron?
+          immutable-hash?
+          (rename [-mutable-hash? mutable-hash?])
           hash-count
           hash-keys-subset?
           eq-hashtable->hash   ; not exported to racket
@@ -319,6 +331,7 @@
 
           impersonate-hash
           chaperone-hash
+          unsafe-impersonate-hash
 
           true-object?
 
@@ -328,15 +341,19 @@
           make-bytes make-shared-bytes
           bytes-ref bytes-set!
           bytes->list list->bytes
-          bytes->immutable-bytes
+          bytes->immutable-bytes immutable-bytes? mutable-bytes?
           bytes-copy! bytes-copy bytes-fill!
           bytes=? bytes<? bytes>?
           bytes-append
           subbytes
+          apply-bytes-append            ; not exported to racket
 
           make-string
           string-copy!
           substring
+          immutable-string? mutable-string?
+          apply-string-append           ; not exported to racket
+          apply-string-append-immutable ; not exported to racket
 
           char-blank?
           char-iso-control?
@@ -363,21 +380,28 @@
                   [|#%ormap| ormap])
 
           vector?
-          mutable-vector?
+          immutable-vector? mutable-vector?
           make-vector
           (rename [inline:vector-length vector-length]
                   [inline:vector-ref vector-ref]
                   [inline:vector-set! vector-set!])
           vector-copy
           vector-copy!
-          vector-immutable
+          vector-set/copy
+          vector-append
+          (rename [inline:vector-immutable vector-immutable])
           vector->values
           vector-fill!
           vector->immutable-vector
           vector->list
+	  vector-extend
           vector*-length
           vector*-ref
           vector*-set!
+          vector*-copy
+          vector*-append
+          vector*-set/copy
+	  vector*-extend
 
           impersonate-vector
           impersonate-vector*
@@ -391,6 +415,7 @@
                   [inline:set-box! set-box!])
           unbox* set-box*!
           make-weak-box weak-box? weak-box-value
+          immutable-box? mutable-box?
           impersonate-box
           chaperone-box
           unbox/check-undefined    ; not exported to Racket
@@ -417,6 +442,7 @@
           real->double-flonum
           real->single-flonum
           arithmetic-shift
+          expt
           bitwise-ior
           bitwise-xor
           bitwise-and
@@ -435,6 +461,7 @@
           fxrshift
           fxlshift
           fxlshift/wraparound
+          fxrshift/logical
           fl->fx
           ->fl
           fl->exact-integer
@@ -492,6 +519,7 @@
           make-hash-placeholder
           make-hasheq-placeholder
           make-hasheqv-placeholder
+          make-hashalw-placeholder
 
           time-apply
           current-inexact-milliseconds
@@ -561,11 +589,15 @@
           unsafe-fxxor
           unsafe-fxnot
           unsafe-fxrshift
+          unsafe-fxrshift/logical
           unsafe-fxlshift
           unsafe-fx+/wraparound
           unsafe-fx-/wraparound
           unsafe-fx*/wraparound
           unsafe-fxlshift/wraparound
+          unsafe-fxpopcount
+          unsafe-fxpopcount32
+          unsafe-fxpopcount16
 
           unsafe-fx=
           unsafe-fx<
@@ -613,6 +645,7 @@
           unsafe-flsqrt
           unsafe-flexpt
 
+          unsafe-flbit-field
           unsafe-flrandom
 
           extfl* extfl+ extfl- ->extfl
@@ -657,6 +690,7 @@
           compiler-sizeof cpointer-gcable? cpointer-tag cpointer?
           ctype-alignof ctype-basetype ctype-c->scheme ctype-scheme->c ctype-sizeof ctype?
           end-stubborn-change extflvector->cpointer
+          assert-ctype-representation ffi-maybe-call-and-callback-core
           ffi-call ffi-call-maker ffi-callback ffi-callback-maker ffi-callback?
           ffi-lib-name ffi-lib? ffi-obj ffi-obj-lib ffi-lib-unload
           ffi-obj-name  ffi-obj? flvector->cpointer free free-immobile-cell lookup-errno
@@ -686,6 +720,8 @@
           ptr-ref/double ptr-set!/double  ; not exported to Racket
           ptr-ref/float ptr-set!/float    ; not exported to Racket
 
+          ffi-static-call-and-callback-core ; not exported to Racket
+
           (rename [inline:unsafe-unbox unsafe-unbox]
                   [inline:unsafe-set-box! unsafe-set-box!])
           unsafe-unbox*
@@ -699,11 +735,17 @@
 
           (rename [inline:unsafe-vector-ref unsafe-vector-ref]
                   [inline:unsafe-vector-set! unsafe-vector-set!]
-                  [inline:unsafe-vector-length unsafe-vector-length])
+                  [inline:unsafe-vector-length unsafe-vector-length]
+                  [inline:unsafe-vector-copy unsafe-vector-copy]
+                  [inline:unsafe-vector-set/copy unsafe-vector-set/copy])
+          unsafe-vector-append
           unsafe-vector*-ref
           unsafe-vector*-set!
           unsafe-vector*-cas!
           unsafe-vector*-length
+          unsafe-vector*-copy
+          unsafe-vector*-set/copy
+          unsafe-vector*-append
 
           unsafe-fxvector-length
           unsafe-fxvector-ref
@@ -722,11 +764,19 @@
           unsafe-string-ref
           unsafe-string-set!
 
+          unsafe-stencil-vector
+          unsafe-stencil-vector-length
+          unsafe-stencil-vector-mask
+          unsafe-stencil-vector-ref
+          unsafe-stencil-vector-set!
+          unsafe-stencil-vector-update
+
           (rename [inline:unsafe-struct-ref unsafe-struct-ref]
                   [inline:unsafe-struct-set! unsafe-struct-set!])
           unsafe-struct*-ref
           unsafe-struct*-set!
           unsafe-struct*-cas!
+          unsafe-struct*-type
           unsafe-struct?        ; not exported to racket
           unsafe-sealed-struct? ; not exported to racket
           unsafe-struct         ; not exported to racket
@@ -862,7 +912,8 @@
 
   ;; in case of early pauses to check for GC:
   (timer-interrupt-handler void)
-  
+
+  (init-flonum-printing!)
   (set-no-locate-source!)
   ;; Note: if there's a bug in `rumble` that causes exception handling to error,
   ;; the the following line will cause the error to loop with another error, etc.,

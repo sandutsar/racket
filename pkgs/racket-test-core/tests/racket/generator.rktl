@@ -4,11 +4,24 @@
 (Section 'generator)
 
 (require racket/generator
+         (only-in racket/string string-prefix?)
          "for-util.rkt")
 
 (test #f generator? 5)
 (test #f generator? void)
 (test #f generator? error)
+
+(define (exn-yield? e)
+  (and (exn:fail:contract? e)
+       ;; the old yield raised arity errors when given anything but a single
+       ;; argument (outside of a generator expression), contrary to the spec
+       ;; (yield v ...)
+       (not (exn:fail:contract:arity? e))
+       (string-prefix? (exn-message e) "yield")))
+
+(thunk-error-test (λ () (yield)) #'(yield) exn-yield?)
+(thunk-error-test (λ () (yield 1)) #'(yield 1) exn-yield?)
+(thunk-error-test (λ () (yield 2 3)) #'(yield 2 3) exn-yield?)
 
 (test-sequence [(0 1 2)] (in-generator (yield 0) (yield 1) (yield 2)))
 (let ([g (lambda () (in-generator (yield 0) (yield 1) (yield 2)))])
@@ -36,6 +49,12 @@
   (test '(1 2 3) 'parameterized-yield
         (for/list ([x (in-generator (helper 0) (helper 1) (helper 2))])
                   x)))
+
+(test '(gen inf-gen) 'inferred-name
+      (list (let ([gen (generator () #f)])
+              (object-name gen))
+            (let ([inf-gen (infinite-generator #f)])
+              (object-name inf-gen))))
 
 (let ([g (lambda () (generator () (yield 1) (yield 2) (yield 3)))])
   (let ([g (g)]) (test '(1 2 3) list (g) (g) (g)))

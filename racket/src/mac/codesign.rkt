@@ -1,8 +1,10 @@
 #lang racket/base
 (require racket/cmdline
+         racket/file
          compiler/private/mach-o)
 
 (define remove? #f)
+(define entitlements #f)
 
 (define file
   (command-line
@@ -13,10 +15,11 @@
            (unless (equal? identity "-")
              (error "identity must be `-`"))]
    [("--entitlements") plist-file "With entitlements"
-                       (void)]
+                       (set! entitlements (file->bytes plist-file))]
    #:args (file)
    file))
 
-(if remove?
-    (remove-signature file)
-    (add-ad-hoc-signature file))
+(void
+ (if remove?
+     (remove-signature file)
+     (add-ad-hoc-signature file #:entitlements entitlements)))

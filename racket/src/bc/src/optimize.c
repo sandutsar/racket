@@ -4225,6 +4225,8 @@ static Scheme_Object *finish_optimize_application(Scheme_App_Rec *app, Optimize_
       return (Scheme_Object *)scheme_make_hash_tree(1);
     if (SAME_OBJ(rator, scheme_hasheqv_proc))
       return (Scheme_Object *)scheme_make_hash_tree(2);
+    if (SAME_OBJ(rator, scheme_hashalw_proc))
+      return (Scheme_Object *)scheme_make_hash_tree(3);
   }
    
   if (SCHEME_PRIMP(rator)
@@ -4999,6 +5001,7 @@ static Scheme_Object *finish_optimize_application3(Scheme_App3_Rec *app, Optimiz
   }
 
   if (SAME_OBJ(app->rator, scheme_equal_proc)
+       || SAME_OBJ(app->rator, scheme_equal_always_proc)
        || SAME_OBJ(app->rator, scheme_eqv_proc)
        || SAME_OBJ(app->rator, scheme_eq_proc)) {
     if (equivalent_exprs(app->rand1, app->rand2, NULL, NULL, 0)) {

@@ -1,17 +1,23 @@
 name: Test with UBSan on X86
 
-on: [push]
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
 
 jobs:
 
 # Build jobs
 # These jobs build Racket using undefined behaviour sanitizers and gathers the results into a final log
   racket3m-ubsan:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     container: racket/racket-ci:latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 100
     - name: Create logs directory
@@ -83,17 +89,17 @@ jobs:
       run: |
         grep 'runtime error' logs/*.log > runtime-errors_git${{ github.sha }}.log || true
         test ! -s runtime-errors_git${{ github.sha }}.log
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: runtime-errors_git${{ github.sha }}
         path: runtime-errors_git${{ github.sha }}.log
 
   racketcs-ubsan:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     container: racket/racket-ci:latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 100
     - name: Create logs directory
@@ -165,7 +171,7 @@ jobs:
       run: |
         grep 'runtime error' logs/*.log > runtime-errors-cs_git${{ github.sha }}.log || true
         test ! -s runtime-errors_git${{ github.sha }}.log
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       if: failure()
       with:
         name: runtime-errors-cs_git${{ github.sha }}

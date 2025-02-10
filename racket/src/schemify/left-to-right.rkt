@@ -48,13 +48,13 @@
 
 ;; Convert a `let-values` to nested `let-values`es to
 ;; enforce order
-(define (left-to-right/let-values idss rhss bodys mutated target)
+(define (left-to-right/let-values idss rhss bodys mutated target unsafe-mode?)
   (cond
     [(null? (cdr idss))
      (define e (if (null? (cdr bodys))
                    (car bodys)
                    `(begin . ,bodys)))
-     (make-let-values (car idss) (car rhss) e target)]
+     (make-let-values (car idss) (car rhss) e target unsafe-mode?)]
    [else
     (let loop ([idss idss] [rhss rhss] [binds null])
       (cond
@@ -63,7 +63,8 @@
          (car idss) (car rhss)
          `(let ,binds
             . ,bodys)
-         target)]
+         target
+	 unsafe-mode?)]
        [else
         (define ids (car idss))
         (make-let-values
@@ -72,7 +73,8 @@
          (loop (cdr idss) (cdr rhss) (append (for/list ([id (in-wrap-list ids)])
                                                `[,id ,id])
                                              binds))
-         target)]))]))
+         target
+	 unsafe-mode?)]))]))
 
 ;; Convert an application to enforce left-to-right evaluation order.
 (define (left-to-right/app rator rands app-form target
@@ -101,12 +103,12 @@
                     (simple? (car l) prim-knowns knowns imports mutated simples unsafe-mode? #:ordered? #t #:no-alloc? #t))
                (define modes (loop (cdr l) #f))
                (if (symbol? modes)
-                   modes
+                   'ordered
                    (cons (if saw-ordered? 'bind 'pure) modes))]
               [(simple? (car l) prim-knowns knowns imports mutated simples unsafe-mode?) ; allocates
                (define modes (loop (cdr l) #f))
                (if (symbol? modes)
-                   'alloc
+                   'ordered
                    (cons 'bind modes))]
               [else
                (define modes (loop (cdr l) #t))
@@ -143,7 +145,7 @@
           
 ;; ----------------------------------------
 
-(define (make-let-values ids rhs body target)
+(define (make-let-values ids rhs body target unsafe-mode?)
   (cond
    [(and (pair? ids) (null? (cdr ids)))
     `(let ([,(car ids) ,rhs]) ,body)]
@@ -153,7 +155,7 @@
        `(begin ,rhs ,body)]
       [`,_
        (cond
-         [(aim? target 'cify)
+         [(or unsafe-mode? (aim? target 'cify))
           ;; No checking
           `(call-with-values (lambda () ,rhs)
              (lambda ,ids ,body))]

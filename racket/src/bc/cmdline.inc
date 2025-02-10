@@ -307,10 +307,10 @@ static int finish_cmd_line_run(FinishArgs *fa, Repl_Proc repl)
         
         if (!scheme_setjmp(newbuf)) {
           if (fa->eval_kind[i] == mzcmd_EVAL) {
-            scheme_eval_string_all_with_prompt(fa->evals_and_loads[i], fa->global_env, 2);
+            scheme_eval_string_all_with_prompt(fa->evals_and_loads[i], NULL, 2);
           } else if (fa->eval_kind[i] == mzcmd_LOAD) {
             /* eval from stdin */
-            scheme_eval_all_with_prompt(NULL, fa->global_env, 2);
+            scheme_eval_all_with_prompt(NULL, NULL, 2);
           } else if (fa->eval_kind[i] == mzcmd_EMBEDDED_REG) {
             scheme_register_embedded_load(-1, fa->evals_and_loads[i]);
             scheme_embedded_load(-1, fa->evals_and_loads[i], 1);
@@ -380,7 +380,7 @@ static int finish_cmd_line_run(FinishArgs *fa, Repl_Proc repl)
           a[0] = e;
           b = scheme_apply(idb, 1, a);
           if (b == scheme_make_false()) {
-            if (!scheme_lookup_global(scheme_intern_symbol("main"), fa->global_env)) {
+            if (!scheme_lookup_global(scheme_intern_symbol("main"), NULL)) {
               scheme_signal_error("main: not defined or required into the top-level environment");
             }
           }
@@ -388,7 +388,7 @@ static int finish_cmd_line_run(FinishArgs *fa, Repl_Proc repl)
           e = scheme_make_pair(e, scheme_vector_to_list(fa->main_args));
           e = scheme_datum_to_kernel_stx(e);
           
-	  e = scheme_eval_multi_with_prompt(e, fa->global_env);
+	  e = scheme_eval_multi_with_prompt(e, NULL);
 
           if (SAME_OBJ(e, SCHEME_MULTIPLE_VALUES)) {
             Scheme_Object **mv;
@@ -1227,19 +1227,6 @@ static int run_from_cmd_line(int argc, char *_argv[],
 
   if (no_init_ns)
     init_ns = 0;
-
-  if (show_vers) {
-#ifndef RACKET_CMD_LINE  
-    if (!use_repl
-#ifdef CMDLINE_STDIO_FLAG
-	|| alternate_rep
-#endif
-	)
-#endif
-      PRINTF("%s", BANNER);
-
-   CMDLINE_FFLUSH(stdout);
-  }
 #endif /* DONT_PARSE_COMMAND_LINE */
 
   if (!syslog_level) {
@@ -1407,6 +1394,34 @@ static int run_from_cmd_line(int argc, char *_argv[],
     scheme_init_collection_paths_post_config(global_env, collects_paths_l, collects_paths_r, config_table);
   scheme_init_compiled_roots_config(global_env, compiled_paths, config_table);
 
+  {
+    Scheme_Object *build_stamp;
+    build_stamp = scheme_hash_tree_get((Scheme_Hash_Tree *)config_table, scheme_intern_symbol("build-stamp"));
+    if (build_stamp) {
+      char *s;
+      intptr_t s_len;
+      s = scheme_display_to_string(build_stamp, &s_len);
+      if (s_len) {
+        scheme_set_build_stamp(s);
+      }
+    }
+  }
+
+#ifndef DONT_PARSE_COMMAND_LINE
+  if (show_vers) {
+#ifndef RACKET_CMD_LINE
+    if (!use_repl
+#ifdef CMDLINE_STDIO_FLAG
+        || alternate_rep
+#endif
+        )
+#endif
+      PRINTF("%s", BANNER);
+
+    CMDLINE_FFLUSH(stdout);
+  }
+#endif
+
   scheme_seal_parameters();
 
   fa_a = (FinishArgsAtoms *)scheme_malloc_atomic(sizeof(FinishArgsAtoms));
@@ -1465,13 +1480,14 @@ static int run_from_cmd_line(int argc, char *_argv[],
   "  -e <exprs>, --eval <exprs>\n"
   "     Evaluate <exprs>, print results\n"
   "  -f <file>, --load <file>\n"
-  "     Like -e '(load \"<file>\")' without printing\n"
+  "     Like -e '(load \"<file>\")' without printing, or\n"
+  "     evaluates all from input when <file> is \"-\"\n"
   "  -t <file>, --require <file>\n"
   "     Like -e '(require (file \"<file>\"))' [*]\n"
   "  -l <path>, --lib <path>\n"
   "     Like -e '(require (lib \"<path>\"))' [*]\n"
   "  -p <package>\n"
-  "     Like -e '(require (planet \"<package>\")' [*]\n"
+  "     Like -e '(require (planet \"<package>\"))' [*]\n"
   "  -r <file>, --script <file>\n"
   "     Same as -f <file> -N <file> --\n"
   "  -u <file>, --require-script <file>\n"

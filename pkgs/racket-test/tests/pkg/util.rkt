@@ -218,7 +218,7 @@
     $ (format "raco pkg install --copy ~a" pkg)
     $ "racket -e '(require pkg-test1)'"
     more ...
-    $ (format "raco pkg remove ~a" rm-pkg)
+    $ (format "raco pkg uninstall ~a" rm-pkg)
     $ "racket -e '(require pkg-test1)'" =exit> 1)))
 
 (define-syntax-rule (shelly-install* message pkg rm-pkg more ...)
@@ -261,7 +261,7 @@
       (copy-directory/files (build-path "pkg-git" f) (build-path pkg-git.git f))))
   (define checksum
     (parameterize ([current-directory pkg-git.git])
-      (system "git init")
+      (system "git init -b main")
       (system "git add -A")
       (system "git commit -m 'initial commit'")
       (string-trim

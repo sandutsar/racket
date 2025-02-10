@@ -43,6 +43,7 @@
     (make-directory clone-dir)
 
     (define a-dir (build-path tmp-dir "a"))
+    (define b-dir (build-path tmp-dir "b"))
 
     (define (commit-changes-cmd [a-dir a-dir])
       (~a "cd " a-dir "; git add .; git commit -m change; git update-server-info"))
@@ -51,7 +52,7 @@
     ;; Single-package repository
 
     (make-directory a-dir)    
-    $ (~a "cd " a-dir "; git init")
+    $ (~a "cd " a-dir "; git init -b main")
     (set-file (build-path a-dir "main.rkt") "#lang racket/base 1")
     $ (commit-changes-cmd)
 
@@ -77,7 +78,7 @@
         $ (~a "cd " (build-path clone-dir "a") "; git add .; git commit -m local")
         $ "racket -l a" =stdout> "2\n"
         $ "racket -l a/alt" =stdout> "'one\n"
-        $ (~a "raco pkg update a") =exit> 1 =stderr> #rx"fast-forward"
+        $ "LC_ALL=C raco pkg update a" =exit> 1 =stderr> #rx"fast-forward"
         $ (~a "cd "  (build-path clone-dir "a") "; git pull --rebase")
         $ (~a "raco pkg update a")
         $ "racket -l a" =stdout> "3\n"
@@ -133,7 +134,7 @@
     ;; Multi-package repository
 
     (make-directory a-dir)
-    $ (~a "cd " a-dir "; git init")
+    $ (~a "cd " a-dir "; git init -b main")
     (make-directory* (build-path a-dir "one"))
     (set-file (build-path a-dir "one" "main.rkt") "#lang racket/base 1")
     (make-directory* (build-path a-dir "two"))
@@ -177,7 +178,7 @@
         "conflicting repositories with the same name"
         (define another-a-dir (build-path tmp-dir "another" "a"))
         (make-directory* another-a-dir)
-        $ (~a "cd " another-a-dir "; git init")
+        $ (~a "cd " another-a-dir "; git init -b main")
         (make-directory* (build-path another-a-dir "two"))
         (set-file (build-path another-a-dir "two" "main.rkt") "#lang racket/base 'two")
         $ (commit-changes-cmd another-a-dir)
@@ -203,7 +204,7 @@
       (shelly-case
        "Single-package repository that becomes multi-package"
        (make-directory a-dir)
-       $ (~a "cd " a-dir "; git init")
+       $ (~a "cd " a-dir "; git init -b main")
        (set-file (build-path a-dir "main.rkt") "#lang racket/base 1")
        $ (commit-changes-cmd)
        
@@ -255,7 +256,7 @@
     ;; Using local changes for metadata
 
     (make-directory a-dir)
-    $ (~a "cd " a-dir "; git init")
+    $ (~a "cd " a-dir "; git init -b main")
     (set-file (build-path a-dir "main.rkt") "#lang racket/base 1")
     $ (commit-changes-cmd)
 
@@ -282,7 +283,7 @@
     (with-fake-root
       (shelly-begin
        (make-directory a-dir)
-       $ (~a "cd " a-dir "; git init")
+       $ (~a "cd " a-dir "; git init -b main")
        (set-file (build-path a-dir "main.rkt") "#lang racket/base 1")
        (~a "cd " a-dir "; git add .; git commit -m change; git update-server-info")
        $ (commit-changes-cmd)
@@ -334,7 +335,7 @@
     (with-fake-root
       (shelly-begin
        (make-directory a-dir)
-       $ (~a "cd " a-dir "; git init")
+       $ (~a "cd " a-dir "; git init -b main")
        (set-file (build-path a-dir "main.rkt") "#lang racket/base 1")
        (~a "cd " a-dir "; git add .; git commit -m change; git update-server-info")
        $ (commit-changes-cmd)
@@ -390,7 +391,7 @@
              " and --multi-clone " mode)
          
          (make-directory a-dir)
-         $ (~a "cd " a-dir "; git init")
+         $ (~a "cd " a-dir "; git init -b main")
          (make-directory* (build-path a-dir "one"))
          (set-file (build-path a-dir "one" "main.rkt") "#lang racket/base 1")
          (make-directory* (build-path a-dir "two"))
@@ -482,7 +483,83 @@
            [three? '(#f #t)]
            [mode '(fail force convert)])
       (check-share-mode three? mode via-b?))
-    
+
+    ;; ----------------------------------------
+    ;; Moving between clones and catalogs
+
+    ;; Imitate the case of converting a package with implied dependencies
+    ;; from a catalog that maps the name to a file URL to one that maps
+    ;; it to a Git repo, then clone, and unclone --- and make sure implied
+    ;; dependencies are handled consistently.
+
+    (with-fake-root
+      (shelly-case
+       "Clone and unclone with implied dependencies"
+
+       (make-directory a-dir)
+       $ (~a "cd " a-dir "; git init -b main")
+       (define (make-files a-dir one two three)
+         (make-directory* (build-path a-dir "one"))
+         (set-file (build-path a-dir "one" "main.rkt") (~a "#lang racket/base " one))
+         (set-file (build-path a-dir "one" "info.rkt") "#lang info (define deps '(\"two\")) (define implies deps)")
+         (make-directory* (build-path a-dir "two"))
+         (set-file (build-path a-dir "two" "main.rkt") (~a "#lang racket/base " two))
+         (set-file (build-path a-dir "two" "info.rkt") "#lang info (define deps '(\"three\")) (define implies deps)")
+         (make-directory* (build-path a-dir "three"))
+         (set-file (build-path a-dir "three" "main.rkt") (~a "#lang racket/base " three)))
+       (make-files a-dir 1 2 3)
+       $ (commit-changes-cmd)
+
+       (define (update-in-catalog! pkg)
+         (hash-set! *index-ht-1* pkg
+                    (hasheq 'checksum
+                            (current-commit a-dir)
+                            'source
+                            (~a "http://localhost:9998/a/.git?path=" pkg))))
+       (update-in-catalog! "one")
+       (update-in-catalog! "two")
+       (update-in-catalog! "three")
+
+       (make-directory b-dir)
+       (make-files b-dir 10 20 30)
+       $ (~a "raco pkg create --format zip --dest " b-dir " " b-dir "/one")
+       $ (~a "raco pkg create --format zip --dest " b-dir " " b-dir "/two")
+       $ (~a "raco pkg create --format zip --dest " b-dir " " b-dir "/three")
+
+       (define (update-in-second-catalog! pkg)
+         (hash-set! *index-ht-2* pkg
+                    (hasheq 'checksum
+                            (file->string (build-path b-dir (~a pkg ".zip.CHECKSUM")))
+                            'source
+                            (~a "http://localhost:9998/b/" pkg ".zip"))))
+       (update-in-second-catalog! "one")
+       (update-in-second-catalog! "two")
+       (update-in-second-catalog! "three")
+       $ "raco pkg config --set catalogs http://localhost:9991"
+
+       $ "raco pkg install --auto one"
+       $ "racket -l one" =stdout> "10\n"
+       $ "racket -l two" =stdout> "20\n"
+       $ "racket -l three" =stdout> "30\n"
+
+       $ "raco pkg update --catalog http://localhost:9990 one"
+       $ "racket -l one" =stdout> "1\n"
+       $ "racket -l two" =stdout> "2\n"
+       $ "racket -l three" =stdout> "3\n"
+
+       $ (~a "raco pkg update --multi-clone convert --clone " (build-path clone-dir "a") " one")
+       $ "racket -l one" =stdout> "1\n"
+       $ "racket -l two" =stdout> "2\n"
+       $ "racket -l three" =stdout> "3\n"
+
+       $ "raco pkg update --unclone one"
+       $ "racket -l one" =stdout> "10\n"
+       $ "racket -l two" =stdout> "20\n"
+       $ "racket -l three" =stdout> "30\n"
+
+       (delete-directory/files a-dir)
+       (delete-directory/files b-dir)))
+
     ;; ----------------------------------------
     
     (finally
@@ -490,5 +567,8 @@
      (hash-remove! *index-ht-1* "one")
      (hash-remove! *index-ht-1* "two")
      (hash-remove! *index-ht-1* "three")
+     (hash-remove! *index-ht-2* "one")
+     (hash-remove! *index-ht-2* "two")
+     (hash-remove! *index-ht-2* "three")
      (custodian-shutdown-all http-custodian)
      (delete-directory/files tmp-dir)))))

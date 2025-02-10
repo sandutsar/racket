@@ -15,6 +15,7 @@
 (define-constant RKTIO_OPEN_NOT_DIR (<< 1 12))
 (define-constant RKTIO_OPEN_INIT (<< 1 13))
 (define-constant RKTIO_OPEN_OWN (<< 1 14))
+(define-constant RKTIO_OPEN_REPLACE_PERMS (<< 1 15))
 (define-constant RKTIO_DEFAULT_PERM_BITS 438)
 (define-constant RKTIO_STDIN 0)
 (define-constant RKTIO_STDOUT 1)
@@ -573,6 +574,12 @@
  rktio_ok_t
  rktio_socket_shutdown
  (((ref rktio_t) rktio) ((ref rktio_fd_t) rfd) (int mode)))
+(define-function/errno
+ #f
+ ()
+ rktio_ok_t
+ rktio_tcp_nodelay
+ (((ref rktio_t) rktio) ((ref rktio_fd_t) rfd) (rktio_bool_t enable)))
 (define-function/errno
  NULL
  ()
@@ -1138,6 +1145,12 @@
 (define-function/errno
  NULL
  ()
+ (ref rktio_stat_t)
+ rktio_fd_stat
+ (((ref rktio_t) rktio) ((ref rktio_fd_t) fd)))
+(define-function/errno
+ NULL
+ ()
  (ref rktio_identity_t)
  rktio_fd_identity
  (((ref rktio_t) rktio) ((ref rktio_fd_t) fd)))
@@ -1195,6 +1208,18 @@
   (rktio_const_string_t dest)
   (rktio_const_string_t src)
   (rktio_bool_t exists_ok)))
+(define-function/errno+step
+ NULL
+ ()
+ (ref rktio_file_copy_t)
+ rktio_copy_file_start_permissions
+ (((ref rktio_t) rktio)
+  (rktio_const_string_t dest)
+  (rktio_const_string_t src)
+  (rktio_bool_t exists_ok)
+  (rktio_bool_t use_perm_bits)
+  (int perm_bits)
+  (rktio_bool_t override_create_perms)))
 (define-function
  ()
  rktio_bool_t
